@@ -1,0 +1,295 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>La mia libreria</title>
+  <meta name="description" content="Catalogo personale dei libri posseduti e letti.">
+  <meta name="theme-color" content="#f5efe4" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#1c1815" media="(prefers-color-scheme: dark)">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="stylesheet" href="css/style.css">
+  <script type="module" src="js/app.js"></script>
+</head>
+<body>
+  <!-- Icone riutilizzate con <use href="#i-…"> -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <symbol id="i-camera" viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-chart" viewBox="0 0 24 24"><path d="M4 4v16h16M8 16v-5M12 16V8M16 16v-3"/></symbol>
+    <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 4v11M8 11l4 4 4-4M5 20h14"/></symbol>
+    <symbol id="i-logout" viewBox="0 0 24 24"><path d="M14 4h5v16h-5M10 8l-4 4 4 4M6 12h10"/></symbol>
+    <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6"/><path d="m20 20-4.5-4.5"/></symbol>
+  </svg>
+
+  <!-- Accesso -->
+  <main id="login-view" class="login" hidden>
+    <form id="login-form" class="login-card">
+      <h1 class="brand">La mia libreria</h1>
+      <p class="muted">Accedi per vedere i tuoi libri.</p>
+      <label class="field">
+        <span>Email</span>
+        <input type="email" name="email" autocomplete="username" required>
+      </label>
+      <label class="field">
+        <span>Password</span>
+        <input type="password" name="password" autocomplete="current-password" required>
+      </label>
+      <p id="login-error" class="form-error" role="alert"></p>
+      <button class="btn btn-primary" type="submit">Accedi</button>
+    </form>
+  </main>
+
+  <!-- Libreria -->
+  <div id="app-view" class="app" hidden>
+    <header class="topbar">
+      <h1 class="brand">La mia libreria</h1>
+      <nav class="topbar-actions">
+        <button id="stats-btn" class="btn btn-ghost" type="button" title="Statistiche">
+          <svg class="icon"><use href="#i-chart"/></svg><span class="label">Statistiche</span>
+        </button>
+        <button id="export-btn" class="btn btn-ghost" type="button" title="Esporta in CSV">
+          <svg class="icon"><use href="#i-download"/></svg><span class="label">Esporta</span>
+        </button>
+        <button id="logout-btn" class="btn btn-ghost" type="button" title="Esci">
+          <svg class="icon"><use href="#i-logout"/></svg><span class="label">Esci</span>
+        </button>
+      </nav>
+    </header>
+
+    <p id="demo-banner" class="banner" hidden>
+      <strong>Modalità demo:</strong> i libri sono salvati solo in questo browser.
+      Collega Supabase in <code>js/config.js</code> per averli su tutti i dispositivi.
+    </p>
+
+    <section class="toolbar">
+      <label class="search">
+        <svg class="icon"><use href="#i-search"/></svg>
+        <input id="search" type="search" placeholder="Cerca titolo, autore, ISBN…" aria-label="Cerca">
+      </label>
+      <div id="filters" class="chips" role="group" aria-label="Filtra">
+        <button type="button" data-filter="all" aria-pressed="true">Tutti</button>
+        <button type="button" data-filter="owned" aria-pressed="false">Posseduti</button>
+        <button type="button" data-filter="read" aria-pressed="false">Letti</button>
+        <button type="button" data-filter="reading" aria-pressed="false">In lettura</button>
+        <button type="button" data-filter="to_read" aria-pressed="false">Da leggere</button>
+        <button type="button" data-filter="lent" aria-pressed="false">Prestati</button>
+        <button type="button" data-filter="not_owned" aria-pressed="false">Non posseduti</button>
+      </div>
+      <div class="toolbar-row">
+        <span id="count" class="muted"></span>
+        <label class="sort">
+          <span class="muted">Ordina per</span>
+          <select id="sort">
+            <option value="recent">Aggiunti di recente</option>
+            <option value="title">Titolo</option>
+            <option value="author">Autore</option>
+            <option value="finished">Letti di recente</option>
+            <option value="rating">Voto</option>
+          </select>
+        </label>
+      </div>
+    </section>
+
+    <main class="content">
+      <ul id="book-list" class="book-list"></ul>
+      <div id="empty" class="empty" hidden>
+        <h2 id="empty-title"></h2>
+        <p id="empty-text" class="muted"></p>
+      </div>
+    </main>
+
+    <div class="fab-group">
+      <button id="scan-btn" class="fab fab-secondary" type="button">
+        <svg class="icon"><use href="#i-camera"/></svg><span>Scansiona</span>
+      </button>
+      <button id="add-btn" class="fab" type="button">
+        <svg class="icon"><use href="#i-plus"/></svg><span>Aggiungi</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- Aggiungi: ricerca per ISBN, titolo o inserimento manuale -->
+  <dialog id="add-dialog" class="sheet" aria-labelledby="add-title">
+    <div class="sheet-body">
+      <header class="sheet-header">
+        <h2 id="add-title">Aggiungi un libro</h2>
+        <button class="icon-btn" type="button" data-close aria-label="Chiudi">
+          <svg class="icon"><use href="#i-close"/></svg>
+        </button>
+      </header>
+
+      <form id="isbn-form" class="add-section">
+        <div class="field">
+          <label for="isbn-input">Codice ISBN</label>
+          <div class="input-row">
+            <input id="isbn-input" name="isbn" inputmode="numeric" autocomplete="off"
+                   placeholder="es. 9788845292613">
+            <button class="btn btn-primary" type="submit">Cerca</button>
+          </div>
+        </div>
+        <button id="add-scan-btn" class="btn btn-secondary btn-block" type="button">
+          <svg class="icon"><use href="#i-camera"/></svg> Scansiona il codice a barre
+        </button>
+        <p id="isbn-error" class="form-error" role="alert"></p>
+      </form>
+
+      <form id="search-form" class="add-section">
+        <div class="field">
+          <label for="search-input">Oppure cerca per titolo o autore</label>
+          <div class="input-row">
+            <input id="search-input" name="q" autocomplete="off" placeholder="es. Il nome della rosa">
+            <button class="btn btn-secondary" type="submit">Cerca</button>
+          </div>
+        </div>
+        <p id="search-status" class="muted" role="status"></p>
+        <ul id="search-results" class="search-results"></ul>
+      </form>
+
+      <button id="manual-btn" class="btn btn-ghost btn-block" type="button">Inserisci a mano</button>
+    </div>
+  </dialog>
+
+  <!-- Scheda libro: nuovo o modifica -->
+  <dialog id="book-dialog" class="sheet" aria-labelledby="book-dialog-title">
+    <form id="book-form" class="sheet-body" novalidate>
+      <header class="sheet-header">
+        <h2 id="book-dialog-title">Nuovo libro</h2>
+        <button class="icon-btn" type="button" data-close aria-label="Chiudi">
+          <svg class="icon"><use href="#i-close"/></svg>
+        </button>
+      </header>
+
+      <p id="book-notice" class="notice" hidden></p>
+
+      <div class="book-head">
+        <div id="book-cover" class="cover cover-lg"></div>
+        <div class="book-head-fields">
+          <label class="field">
+            <span>Titolo *</span>
+            <input name="title" required>
+          </label>
+          <label class="field">
+            <span>Autori</span>
+            <input name="authors" placeholder="Separati da virgola">
+          </label>
+        </div>
+      </div>
+
+      <fieldset class="field">
+        <legend>Stato di lettura</legend>
+        <div class="segmented">
+          <label><input type="radio" name="status" value="to_read"><span>Da leggere</span></label>
+          <label><input type="radio" name="status" value="reading"><span>In lettura</span></label>
+          <label><input type="radio" name="status" value="read"><span>Letto</span></label>
+          <label><input type="radio" name="status" value="abandoned"><span>Abbandonato</span></label>
+        </div>
+      </fieldset>
+
+      <div class="grid-2">
+        <label class="field" id="started-field">
+          <span>Iniziato il</span>
+          <input type="date" name="started_at">
+        </label>
+        <label class="field" id="finished-field">
+          <span>Finito il</span>
+          <input type="date" name="finished_at">
+        </label>
+      </div>
+
+      <div class="field">
+        <span id="rating-label">Voto</span>
+        <div id="rating" class="rating" role="group" aria-labelledby="rating-label"></div>
+        <input type="hidden" name="rating">
+      </div>
+
+      <div class="field">
+        <label class="switch">
+          <input type="checkbox" name="owned">
+          <span>Lo possiedo</span>
+        </label>
+      </div>
+      <label class="field" id="lent-field">
+        <span>Prestato a</span>
+        <input name="lent_to" placeholder="Lascia vuoto se è a casa">
+      </label>
+
+      <label class="field">
+        <span>Note</span>
+        <textarea name="notes" rows="3"></textarea>
+      </label>
+
+      <details class="more">
+        <summary>Dettagli dell'edizione</summary>
+        <div class="grid-2">
+          <label class="field">
+            <span>ISBN</span>
+            <input name="isbn" inputmode="numeric" autocomplete="off">
+          </label>
+          <label class="field">
+            <span>Editore</span>
+            <input name="publisher">
+          </label>
+          <label class="field">
+            <span>Anno</span>
+            <input name="published_year" type="number" inputmode="numeric" min="1000" max="2100">
+          </label>
+          <label class="field">
+            <span>Pagine</span>
+            <input name="pages" type="number" inputmode="numeric" min="1">
+          </label>
+          <label class="field">
+            <span>Genere</span>
+            <input name="genre">
+          </label>
+          <label class="field">
+            <span>Lingua</span>
+            <input name="language" placeholder="es. it">
+          </label>
+        </div>
+        <label class="field">
+          <span>Indirizzo della copertina</span>
+          <input name="cover_url" type="url" placeholder="https://…">
+        </label>
+      </details>
+
+      <p id="book-error" class="form-error" role="alert"></p>
+
+      <footer class="sheet-footer">
+        <button id="delete-btn" class="btn btn-danger" type="button">Elimina</button>
+        <span class="spacer"></span>
+        <button class="btn btn-ghost" type="button" data-close>Annulla</button>
+        <button class="btn btn-primary" type="submit">Salva</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <!-- Scansione -->
+  <dialog id="scan-dialog" class="scan" aria-label="Scansione codice a barre">
+    <video id="scan-video" playsinline muted></video>
+    <div class="scan-frame" aria-hidden="true"></div>
+    <p id="scan-status" class="scan-status" role="status"></p>
+    <button class="btn scan-cancel" type="button" data-close>Annulla</button>
+  </dialog>
+
+  <!-- Statistiche -->
+  <dialog id="stats-dialog" class="sheet" aria-labelledby="stats-title">
+    <div class="sheet-body">
+      <header class="sheet-header">
+        <h2 id="stats-title">Statistiche</h2>
+        <button class="icon-btn" type="button" data-close aria-label="Chiudi">
+          <svg class="icon"><use href="#i-close"/></svg>
+        </button>
+      </header>
+      <div id="stat-tiles" class="stat-tiles"></div>
+      <h3 class="section-title">Libri letti per anno</h3>
+      <div id="year-chart" class="year-chart"></div>
+    </div>
+  </dialog>
+
+  <div id="toast" class="toast" role="status" aria-live="polite" popover="manual"></div>
+</body>
+</html>
