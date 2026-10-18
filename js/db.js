@@ -1,18 +1,22 @@
 // Accesso ai dati: Supabase se configurato, altrimenti localStorage (modalità demo).
+// Aggiungendo ?demo all'indirizzo si forza la modalità demo, utile per provare
+// modifiche senza toccare i dati veri (es. http://localhost:8080/?demo).
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/+esm';
 import { SUPABASE_URL, SUPABASE_KEY } from './config.js';
 
-export const isDemo = !SUPABASE_URL || !SUPABASE_KEY;
+export const isDemo = !SUPABASE_URL || !SUPABASE_KEY
+  || new URLSearchParams(location.search).has('demo');
 
 const supabase = isDemo ? null : createClient(SUPABASE_URL, SUPABASE_KEY);
 
 const DEMO_KEY = 'libreria-demo-books';
+const DEMO_PROFILE_KEY = 'libreria-demo-profile';
 const DUPLICATE_MESSAGE = 'Questo ISBN è già nella tua libreria.';
 
 // ---- Autenticazione ----
 
 export async function getUser() {
-  if (isDemo) return { email: 'demo' };
+  if (isDemo) return { id: 'demo', email: 'demo' };
   const { data } = await supabase.auth.getSession();
   return data.session?.user ?? null;
 }
@@ -36,6 +40,54 @@ export async function signIn(email, password) {
 
 export async function signOut() {
   if (!isDemo) await supabase.auth.signOut();
+}
+
+export async function changePassword(password) {
+  if (isDemo) throw new Error("In modalità demo non c'è nessuna password da cambiare.");
+  const { error } = await supabase.auth.updateUser({ password });
+  if (!error) return;
+  if (error.code === 'same_password') throw new Error('La nuova password deve essere diversa da quella attuale.');
+  if (error.code === 'weak_password') throw new Error('Password troppo debole: usane una più lunga.');
+  throw new Error(error.message);
+}
+
+// ---- Profilo (nome visibile nel club) ----
+
+export async function getProfile() {
+  if (isDemo) return readJson(DEMO_PROFILE_KEY, null);
+  const { data, error } = await supabase.from('profiles').select('display_name').maybeSingle();
+  if (error) throw error;
+  return data;
+}
+
+export async function saveProfile(displayName) {
+  if (isDemo) {
+    localStorage.setItem(DEMO_PROFILE_KEY, JSON.stringify({ display_name: displayName }));
+    return;
+  }
+  const user = await getUser();
+  const { error } = await supabase.from('profiles').upsert({ id: user.id, display_name: displayName });
+  if (error) throw error;
+}
+
+// ---- Club ----
+
+// Libri condivisi da tutti i membri, senza i dati privati (note, date, a chi è prestato).
+export async function listClubBooks() {
+  if (isDemo) {
+    const name = (await getProfile())?.display_name ?? 'Tu';
+    return readDemo()
+      .filter((b) => b.shared)
+      .map(({ notes, lent_to, started_at, finished_at, user_id, ...book }) => ({
+        ...book,
+        owner_id: 'demo',
+        owner_name: name,
+        available: book.owned && !lent_to,
+      }));
+  }
+  const { data, error } = await supabase.rpc('club_books');
+  if (error) throw error;
+  return data;
 }
 
 // ---- Libri ----
@@ -93,10 +145,14 @@ function friendlyError(error) {
 }
 
 function readDemo() {
+  return readJson(DEMO_KEY, []);
+}
+
+function readJson(key, fallback) {
   try {
-    return JSON.parse(localStorage.getItem(DEMO_KEY)) ?? [];
+    return JSON.parse(localStorage.getItem(key)) ?? fallback;
   } catch {
-    return [];
+    return fallback;
   }
 }
 

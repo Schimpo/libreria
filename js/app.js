@@ -1,4 +1,4 @@
-// Interfaccia dell'app: elenco, filtri, aggiunta, modifica, scansione, statistiche.
+// Interfaccia dell'app: elenco, filtri, aggiunta, modifica, scansione, club, statistiche.
 import * as db from './db.js';
 import { normalizeIsbn, lookupIsbn, searchBooks } from './lookup.js';
 import { canScan, scanIsbn } from './scanner.js';
@@ -18,12 +18,22 @@ const FILTERS = {
   to_read: (b) => b.status === 'to_read',
   lent: (b) => b.owned && b.lent_to,
   not_owned: (b) => !b.owned,
+  shared: (b) => b.shared,
+};
+
+// Filtri del club: lavorano su gruppi (stesso libro condiviso da più membri).
+const CLUB_FILTERS = {
+  all: () => true,
+  available: (group, me) => group.entries.some((e) => e.available && e.owner_id !== me),
+  liked: (group) => group.entries.some((e) => e.rating >= 4),
+  mine: (group, me) => group.entries.some((e) => e.owner_id === me),
 };
 
 // Colori delle copertine segnaposto (testo bianco leggibile su tutti).
 const PLACEHOLDER_COLORS = ['#7b4b3a', '#4f6355', '#5a5f7a', '#8a6a3b', '#6b4f6e', '#3f5f6b'];
 
 const numberFormat = new Intl.NumberFormat('it-IT');
+const decimalFormat = new Intl.NumberFormat('it-IT', { maximumFractionDigits: 1 });
 
 const state = {
   books: [],
@@ -31,6 +41,10 @@ const state = {
   query: '',
   sort: 'recent',
   editingId: null, // id del libro aperto nella scheda, null se nuovo
+  view: 'library', // 'library' oppure 'club'
+  email: '',
+  profile: null, // { display_name } oppure null se non ancora scelto
+  club: { books: [], error: null, filter: 'all', member: '', query: '' },
 };
 
 let currentUserId;
@@ -43,7 +57,6 @@ const $ = (selector) => document.querySelector(selector);
 async function init() {
   bindEvents();
   $('#demo-banner').hidden = !db.isDemo;
-  $('#logout-btn').hidden = db.isDemo;
   db.onAuthChange(showView);
   showView(await db.getUser());
 }
@@ -56,7 +69,14 @@ async function showView(user) {
   $('#login-view').hidden = Boolean(user);
   $('#app-view').hidden = !user;
   state.books = [];
-  if (user) await loadBooks();
+  state.email = user?.email ?? '';
+  state.profile = null;
+  switchView('library');
+  if (!user) return;
+
+  await loadBooks();
+  // Al primo accesso si chiede il nome da mostrare nel club.
+  if (await loadProfile() && !state.profile && !db.isDemo) openProfile(true);
 }
 
 async function loadBooks() {
@@ -88,7 +108,14 @@ async function handleLogin(event) {
 
 function bindEvents() {
   $('#login-form').addEventListener('submit', handleLogin);
-  $('#logout-btn').addEventListener('click', () => db.signOut());
+  $('#logout-btn').addEventListener('click', () => {
+    $('#profile-dialog').close();
+    db.signOut();
+  });
+  $('#tabs').addEventListener('click', (e) => {
+    const tab = e.target.closest('[data-view]');
+    if (tab) switchView(tab.dataset.view);
+  });
 
   $('#search').addEventListener('input', (e) => {
     state.query = e.target.value;
@@ -110,6 +137,26 @@ function bindEvents() {
     if (item) openBookForm(state.books.find((b) => b.id === item.dataset.id));
   });
 
+  $('#club-search').addEventListener('input', (e) => {
+    state.club.query = e.target.value;
+    renderClub();
+  });
+  $('#club-filters').addEventListener('click', (e) => {
+    const button = e.target.closest('[data-filter]');
+    if (!button) return;
+    state.club.filter = button.dataset.filter;
+    for (const b of $('#club-filters').children) b.setAttribute('aria-pressed', b === button);
+    renderClub();
+  });
+  $('#club-member').addEventListener('change', (e) => {
+    state.club.member = e.target.value;
+    renderClub();
+  });
+  $('#club-list').addEventListener('click', (e) => {
+    const edit = e.target.closest('[data-id]');
+    if (edit) openBookForm(state.books.find((b) => b.id === edit.dataset.id));
+  });
+
   $('#add-btn').addEventListener('click', openAddDialog);
   $('#scan-btn').addEventListener('click', startScan);
   $('#add-scan-btn').addEventListener('click', startScan);
@@ -120,7 +167,7 @@ function bindEvents() {
   $('#book-form').addEventListener('submit', handleSave);
   $('#book-form').addEventListener('change', (e) => {
     if (e.target.name === 'status') onStatusChange();
-    if (e.target.name === 'owned') updateFormVisibility();
+    if (e.target.name === 'owned' || e.target.name === 'shared') updateFormVisibility();
     if (e.target.name === 'cover_url' || e.target.name === 'title') updateCoverPreview();
   });
   $('#delete-btn').addEventListener('click', handleDelete);
@@ -135,6 +182,9 @@ function bindEvents() {
 
   $('#stats-btn').addEventListener('click', openStats);
   $('#export-btn').addEventListener('click', exportCsv);
+  $('#profile-btn').addEventListener('click', () => openProfile());
+  $('#profile-form').addEventListener('submit', handleProfileSave);
+  $('#password-form').addEventListener('submit', handlePasswordChange);
 
   $('#scan-dialog').addEventListener('close', () => scanController?.abort());
   $('#scan-video').addEventListener('playing', () => {
@@ -192,7 +242,7 @@ const SORTERS = {
 function authorKey(book) {
   const first = (book.authors ?? '').split(',')[0].trim();
   const parts = first.split(/\s+/);
-  return parts.length > 1 ? `${parts.at(-1)} ${parts.slice(0, -1).join(' ')}` : first || '￿';
+  return parts.length > 1 ? `${parts.at(-1)} ${parts.slice(0, -1).join(' ')}` : first || '\uffff';
 }
 
 function bookItem(book) {
@@ -200,8 +250,8 @@ function bookItem(book) {
     el('span', { class: `badge badge-${book.status}` }, STATUS_LABELS[book.status]),
     book.owned && !book.lent_to && el('span', { class: 'badge badge-owned' }, 'Posseduto'),
     book.owned && book.lent_to && el('span', { class: 'badge badge-lent' }, `Prestato a ${book.lent_to}`),
-    book.rating && el('span', { class: 'stars', 'aria-label': `Voto ${book.rating} su 5` },
-      '★'.repeat(book.rating) + '☆'.repeat(5 - book.rating)),
+    book.shared && el('span', { class: 'badge badge-shared' }, 'Condiviso'),
+    book.rating && stars(book.rating),
   );
   return el('li', {},
     el('button', { class: 'book', type: 'button', 'data-id': book.id },
@@ -213,6 +263,11 @@ function bookItem(book) {
       ),
     ),
   );
+}
+
+function stars(rating) {
+  return el('span', { class: 'stars', 'aria-label': `Voto ${rating} su 5` },
+    '★'.repeat(rating) + '☆'.repeat(5 - rating));
 }
 
 function coverElement(book, extraClass = '') {
@@ -232,6 +287,198 @@ function placeholderColor(text) {
   let hash = 0;
   for (const ch of text) hash = (hash * 31 + ch.codePointAt(0)) >>> 0;
   return PLACEHOLDER_COLORS[hash % PLACEHOLDER_COLORS.length];
+}
+
+// ---------- Club ----------
+
+function switchView(view) {
+  state.view = view;
+  for (const tab of $('#tabs').children) tab.setAttribute('aria-selected', tab.dataset.view === view);
+  $('#library-view').hidden = view !== 'library';
+  $('#club-view').hidden = view !== 'club';
+  if (view === 'club') loadClub();
+}
+
+async function loadClub() {
+  $('#club-count').textContent = 'Carico i libri del club…';
+  try {
+    state.club.books = await db.listClubBooks();
+    state.club.error = null;
+  } catch (error) {
+    state.club.books = [];
+    state.club.error = error.code === 'PGRST202'
+      ? 'La sezione club non è ancora attiva: esegui supabase/02-club.sql nel SQL Editor di Supabase.'
+      : `Impossibile caricare il club: ${error.message}`;
+  }
+  renderClub();
+}
+
+function renderClub() {
+  const me = currentUserId;
+  const { books, filter, error } = state.club;
+  const query = simplify(state.club.query.trim());
+
+  // Menu dei membri, ricostruito ogni volta mantenendo la scelta fatta.
+  const members = new Map(books.map((b) => [b.owner_id, b.owner_id === me ? 'Tu' : b.owner_name]));
+  const select = $('#club-member');
+  select.replaceChildren(
+    el('option', { value: '' }, 'tutti i membri'),
+    ...[...members]
+      .sort(([, a], [, b]) => a.localeCompare(b, 'it'))
+      .map(([id, name]) => el('option', { value: id }, name)),
+  );
+  select.value = members.has(state.club.member) ? state.club.member : '';
+  state.club.member = select.value;
+
+  const groups = groupClubBooks(books);
+  const visible = groups.filter((g) => CLUB_FILTERS[filter](g, me)
+    && (!state.club.member || g.entries.some((e) => e.owner_id === state.club.member))
+    && (!query || matches(g, query) || g.entries.some((e) => simplify(e.owner_name).includes(query))));
+
+  $('#club-list').replaceChildren(...visible.map(clubItem));
+  $('#club-count').textContent = error ? '' : visible.length === groups.length
+    ? plural(groups.length, 'libro', 'libri')
+    : `${visible.length} di ${plural(groups.length, 'libro', 'libri')}`;
+
+  $('#club-empty').hidden = visible.length > 0;
+  if (error) {
+    $('#club-empty-title').textContent = 'Club non disponibile';
+    $('#club-empty-text').textContent = error;
+  } else if (groups.length) {
+    $('#club-empty-title').textContent = 'Nessun risultato';
+    $('#club-empty-text').textContent = 'Nessun libro corrisponde alla ricerca o al filtro scelto.';
+  } else {
+    $('#club-empty-title').textContent = 'Nessun libro condiviso';
+    $('#club-empty-text').textContent = 'Apri un libro della tua libreria e attiva “Condividi con il club”: '
+      + 'lo vedranno tutti i membri, insieme al tuo voto e al tuo commento.';
+  }
+}
+
+// Riunisce in una sola scheda lo stesso libro condiviso da più membri
+// (stesso ISBN, oppure stesso titolo e primo autore se l'ISBN manca).
+function groupClubBooks(books) {
+  const groups = new Map();
+  for (const book of books) {
+    const key = book.isbn ?? simplify(`${book.title}|${(book.authors ?? '').split(',')[0].trim()}`);
+    if (!groups.has(key)) groups.set(key, { ...book, entries: [] });
+    const group = groups.get(key);
+    group.cover_url ??= book.cover_url;
+    group.entries.push(book);
+  }
+  return [...groups.values()];
+}
+
+function clubItem(group) {
+  const ratings = group.entries.map((e) => e.rating).filter(Boolean);
+  const average = ratings.length ? ratings.reduce((a, b) => a + b, 0) / ratings.length : 0;
+  return el('li', { class: 'club-card' },
+    el('div', { class: 'club-head' },
+      coverElement(group),
+      el('div', { class: 'book-info' },
+        el('span', { class: 'book-title' }, group.title),
+        group.authors && el('span', { class: 'book-authors' }, group.authors),
+        ratings.length > 0 && el('span', { class: 'club-avg' },
+          el('span', { class: 'stars', 'aria-hidden': 'true' }, '★'),
+          `${decimalFormat.format(average)} su 5 · ${plural(ratings.length, 'voto', 'voti')}`),
+      ),
+    ),
+    el('ul', { class: 'club-entries' }, ...group.entries.map(clubEntry)),
+  );
+}
+
+function clubEntry(entry) {
+  const mine = entry.owner_id === currentUserId;
+  let availability;
+  if (!entry.owned) availability = el('span', { class: 'badge badge-owned' }, 'Non lo possiede');
+  else if (entry.available) availability = el('span', { class: 'badge badge-available' }, 'Disponibile');
+  else availability = el('span', { class: 'badge badge-lent' }, 'In prestito');
+
+  return el('li', {},
+    el('div', { class: 'club-entry-head' },
+      el('span', { class: 'club-owner' }, mine ? 'Tu' : entry.owner_name),
+      el('span', { class: `badge badge-${entry.status}` }, STATUS_LABELS[entry.status]),
+      entry.rating && stars(entry.rating),
+      availability,
+      mine && el('button', { class: 'link-btn', type: 'button', 'data-id': entry.id }, 'Modifica'),
+    ),
+    entry.club_comment && el('p', { class: 'club-comment' }, entry.club_comment),
+  );
+}
+
+// ---------- Profilo ----------
+
+// Restituisce false se il profilo non si può leggere (es. 02-club.sql non ancora eseguito).
+async function loadProfile() {
+  try {
+    state.profile = await db.getProfile();
+    return true;
+  } catch {
+    state.profile = null;
+    return false;
+  }
+}
+
+function openProfile(isWelcome = false) {
+  $('#profile-form').elements.display_name.value = state.profile?.display_name ?? '';
+  $('#profile-intro').hidden = !isWelcome;
+  $('#profile-error').textContent = '';
+  $('#password-error').textContent = '';
+  $('#password-form').reset();
+  $('#password-form').hidden = db.isDemo;
+  $('#logout-btn').hidden = db.isDemo;
+  $('#profile-email').textContent = db.isDemo ? 'demo' : state.email;
+  $('#profile-dialog').showModal();
+}
+
+async function handleProfileSave(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const button = form.querySelector('[type="submit"]');
+  const name = form.elements.display_name.value.trim();
+  $('#profile-error').textContent = '';
+  if (!name) {
+    $('#profile-error').textContent = 'Scrivi il nome che vedranno gli altri.';
+    return;
+  }
+  button.disabled = true;
+  try {
+    await db.saveProfile(name);
+    state.profile = { display_name: name };
+    $('#profile-intro').hidden = true;
+    toast('Nome salvato.');
+    if (state.view === 'club') loadClub();
+  } catch (error) {
+    $('#profile-error').textContent = error.message;
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function handlePasswordChange(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const button = form.querySelector('[type="submit"]');
+  const { password, confirm } = form.elements;
+  const error = $('#password-error');
+  error.textContent = '';
+  if (password.value.length < 8) {
+    error.textContent = 'La password deve avere almeno 8 caratteri.';
+    return;
+  }
+  if (password.value !== confirm.value) {
+    error.textContent = 'Le due password non coincidono.';
+    return;
+  }
+  button.disabled = true;
+  try {
+    await db.changePassword(password.value);
+    form.reset();
+    toast('Password cambiata.');
+  } catch (e) {
+    error.textContent = e.message;
+  } finally {
+    button.disabled = false;
+  }
 }
 
 // ---------- Aggiunta ----------
@@ -395,6 +642,7 @@ function updateFormVisibility() {
   $('#started-field').hidden = status === 'to_read';
   $('#finished-field').hidden = !['read', 'abandoned'].includes(status);
   $('#lent-field').hidden = !form.elements.owned.checked;
+  $('#club-comment-field').hidden = !form.elements.shared.checked;
 }
 
 function updateCoverPreview() {
@@ -449,6 +697,8 @@ function readForm() {
     started_at: status === 'to_read' ? null : text('started_at'),
     finished_at: ['read', 'abandoned'].includes(status) ? text('finished_at') : null,
     notes: text('notes'),
+    shared: f.shared.checked,
+    club_comment: text('club_comment'),
   };
 }
 
@@ -467,7 +717,10 @@ async function handleSave(event) {
     }
     $('#book-dialog').close();
     render();
+    if (state.view === 'club') loadClub();
     toast('Libro salvato.');
+    // Chi condivide il primo libro senza aver scelto un nome lo sceglie ora.
+    if (data.shared && !state.profile && await loadProfile() && !state.profile) openProfile(true);
   } catch (error) {
     $('#book-error').textContent = error.message;
   } finally {
@@ -483,6 +736,7 @@ async function handleDelete() {
     state.books = state.books.filter((b) => b.id !== book.id);
     $('#book-dialog').close();
     render();
+    if (state.view === 'club') loadClub();
     toast('Libro eliminato.');
   } catch (error) {
     $('#book-error').textContent = error.message;
@@ -504,6 +758,7 @@ function openStats() {
     [`Letti nel ${year}`, readThisYear.length],
     [`Pagine lette nel ${year}`, sum(readThisYear, 'pages')],
     ['In prestito', books.filter(FILTERS.lent).length],
+    ['Condivisi con il club', books.filter(FILTERS.shared).length],
   ];
   $('#stat-tiles').replaceChildren(...tiles.map(([label, value]) => el('div', { class: 'stat' },
     el('div', { class: 'stat-label' }, label),
@@ -543,11 +798,12 @@ function exportCsv() {
     ['title', 'Titolo'], ['authors', 'Autori'], ['isbn', 'ISBN'], ['publisher', 'Editore'],
     ['published_year', 'Anno'], ['pages', 'Pagine'], ['genre', 'Genere'], ['language', 'Lingua'],
     ['owned', 'Posseduto'], ['lent_to', 'Prestato a'], ['status', 'Stato'], ['rating', 'Voto'],
-    ['started_at', 'Iniziato il'], ['finished_at', 'Finito il'], ['notes', 'Note'],
+    ['started_at', 'Iniziato il'], ['finished_at', 'Finito il'], ['notes', 'Note private'],
+    ['shared', 'Condiviso'], ['club_comment', 'Commento per il club'],
     ['cover_url', 'Copertina'], ['created_at', 'Aggiunto il'],
   ];
   const format = (key, value) => {
-    if (key === 'owned') return value ? 'sì' : 'no';
+    if (key === 'owned' || key === 'shared') return value ? 'sì' : 'no';
     if (key === 'status') return STATUS_LABELS[value];
     if (key === 'created_at') return value.slice(0, 10);
     return value ?? '';
@@ -561,7 +817,7 @@ function exportCsv() {
     columns.map(([, label]) => label).join(';'),
     ...state.books.map((b) => columns.map(([key]) => escape(format(key, b[key]))).join(';')),
   ];
-  const blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
+  const blob = new Blob(['\ufeff' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
   const link = el('a', {
     href: URL.createObjectURL(blob),
     download: `libreria-${new Date().toISOString().slice(0, 10)}.csv`,

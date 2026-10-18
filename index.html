@@ -23,6 +23,7 @@
     <symbol id="i-logout" viewBox="0 0 24 24"><path d="M14 4h5v16h-5M10 8l-4 4 4 4M6 12h10"/></symbol>
     <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
     <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6"/><path d="m20 20-4.5-4.5"/></symbol>
+    <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 20c1.5-4 4.5-6 8-6s6.5 2 8 6"/></symbol>
   </svg>
 
   <!-- Accesso -->
@@ -54,10 +55,14 @@
         <button id="export-btn" class="btn btn-ghost" type="button" title="Esporta in CSV">
           <svg class="icon"><use href="#i-download"/></svg><span class="label">Esporta</span>
         </button>
-        <button id="logout-btn" class="btn btn-ghost" type="button" title="Esci">
-          <svg class="icon"><use href="#i-logout"/></svg><span class="label">Esci</span>
+        <button id="profile-btn" class="btn btn-ghost" type="button" title="Profilo">
+          <svg class="icon"><use href="#i-user"/></svg><span class="label">Profilo</span>
         </button>
       </nav>
+      <div id="tabs" class="tabs" role="tablist">
+        <button type="button" role="tab" data-view="library" aria-selected="true">I miei libri</button>
+        <button type="button" role="tab" data-view="club" aria-selected="false">Club</button>
+      </div>
     </header>
 
     <p id="demo-banner" class="banner" hidden>
@@ -65,6 +70,7 @@
       Collega Supabase in <code>js/config.js</code> per averli su tutti i dispositivi.
     </p>
 
+    <div id="library-view">
     <section class="toolbar">
       <label class="search">
         <svg class="icon"><use href="#i-search"/></svg>
@@ -78,6 +84,7 @@
         <button type="button" data-filter="to_read" aria-pressed="false">Da leggere</button>
         <button type="button" data-filter="lent" aria-pressed="false">Prestati</button>
         <button type="button" data-filter="not_owned" aria-pressed="false">Non posseduti</button>
+        <button type="button" data-filter="shared" aria-pressed="false">Condivisi</button>
       </div>
       <div class="toolbar-row">
         <span id="count" class="muted"></span>
@@ -109,6 +116,40 @@
       <button id="add-btn" class="fab" type="button">
         <svg class="icon"><use href="#i-plus"/></svg><span>Aggiungi</span>
       </button>
+    </div>
+    </div>
+
+    <!-- Club: libri condivisi da tutti i membri -->
+    <div id="club-view" hidden>
+      <section class="toolbar">
+        <label class="search">
+          <svg class="icon"><use href="#i-search"/></svg>
+          <input id="club-search" type="search" placeholder="Cerca nei libri del club…" aria-label="Cerca nel club">
+        </label>
+        <div id="club-filters" class="chips" role="group" aria-label="Filtra il club">
+          <button type="button" data-filter="all" aria-pressed="true">Tutti</button>
+          <button type="button" data-filter="available" aria-pressed="false">Da farsi prestare</button>
+          <button type="button" data-filter="liked" aria-pressed="false">Consigliati</button>
+          <button type="button" data-filter="mine" aria-pressed="false">Condivisi da me</button>
+        </div>
+        <div class="toolbar-row">
+          <span id="club-count" class="muted"></span>
+          <label class="sort">
+            <span class="muted">Di</span>
+            <select id="club-member">
+              <option value="">tutti i membri</option>
+            </select>
+          </label>
+        </div>
+      </section>
+
+      <main class="content">
+        <ul id="club-list" class="club-list"></ul>
+        <div id="club-empty" class="empty" hidden>
+          <h2 id="club-empty-title"></h2>
+          <p id="club-empty-text" class="muted"></p>
+        </div>
+      </main>
     </div>
   </div>
 
@@ -218,9 +259,23 @@
       </label>
 
       <label class="field">
-        <span>Note</span>
-        <textarea name="notes" rows="3"></textarea>
+        <span>Note private</span>
+        <textarea name="notes" rows="3" placeholder="Le vedi solo tu"></textarea>
       </label>
+
+      <fieldset class="club-box">
+        <legend>Club del libro</legend>
+        <label class="switch">
+          <input type="checkbox" name="shared">
+          <span>Condividi con il club</span>
+        </label>
+        <p class="hint">Gli altri membri vedranno titolo, stato di lettura, voto, il commento qui sotto
+          e se il libro è disponibile per il prestito. Le note private restano private.</p>
+        <label class="field" id="club-comment-field">
+          <span>Commento per il club</span>
+          <textarea name="club_comment" rows="2" placeholder="Ti è piaciuto? Lo consiglieresti?"></textarea>
+        </label>
+      </fieldset>
 
       <details class="more">
         <summary>Dettagli dell'edizione</summary>
@@ -273,6 +328,52 @@
     <div class="scan-frame" aria-hidden="true"></div>
     <p id="scan-status" class="scan-status" role="status"></p>
     <button class="btn scan-cancel" type="button" data-close>Annulla</button>
+  </dialog>
+
+  <!-- Profilo: nome nel club, cambio password, uscita -->
+  <dialog id="profile-dialog" class="sheet" aria-labelledby="profile-title">
+    <div class="sheet-body">
+      <header class="sheet-header">
+        <h2 id="profile-title">Profilo</h2>
+        <button class="icon-btn" type="button" data-close aria-label="Chiudi">
+          <svg class="icon"><use href="#i-close"/></svg>
+        </button>
+      </header>
+      <p id="profile-intro" class="notice" hidden>
+        Benvenuto! Scegli il nome che vedranno gli altri membri del club.
+        Se hai ricevuto una password provvisoria, cambiala qui sotto.
+      </p>
+
+      <form id="profile-form" class="add-section">
+        <label class="field">
+          <span>Il tuo nome nel club</span>
+          <input name="display_name" maxlength="40" autocomplete="nickname" required>
+        </label>
+        <p id="profile-error" class="form-error" role="alert"></p>
+        <button class="btn btn-primary" type="submit">Salva nome</button>
+      </form>
+
+      <form id="password-form" class="add-section">
+        <h3 class="section-title">Cambia password</h3>
+        <label class="field">
+          <span>Nuova password</span>
+          <input type="password" name="password" minlength="8" autocomplete="new-password" required>
+        </label>
+        <label class="field">
+          <span>Ripeti la nuova password</span>
+          <input type="password" name="confirm" minlength="8" autocomplete="new-password" required>
+        </label>
+        <p id="password-error" class="form-error" role="alert"></p>
+        <button class="btn btn-secondary" type="submit">Cambia password</button>
+      </form>
+
+      <div class="profile-footer">
+        <span class="muted">Accesso come <strong id="profile-email"></strong></span>
+        <button id="logout-btn" class="btn btn-ghost" type="button">
+          <svg class="icon"><use href="#i-logout"/></svg> Esci
+        </button>
+      </div>
+    </div>
   </dialog>
 
   <!-- Statistiche -->
