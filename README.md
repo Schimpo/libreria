@@ -8,8 +8,12 @@ Funziona su telefono (con scansione del codice a barre) e su PC.
 - **Posseduto e letto sono separati**: un libro può essere tuo ma da leggere, o letto ma preso in prestito.
 - Stato di lettura, date, voto, note, a chi l'hai prestato.
 - Ricerca, filtri, ordinamento, statistiche ed esportazione in CSV.
+- **Lista "Voglio leggere"**: i libri che ti incuriosiscono e non hai ancora, con chi te li ha consigliati.
 - **Club del libro**: ognuno sceglie quali libri condividere con i colleghi, con voto e commento;
-  nella schermata *Club* si vede chi ha cosa, cosa è piaciuto e cosa si può farsi prestare.
+  nella schermata *Club* si vede chi ha cosa, cosa è piaciuto e cosa ci si può far prestare.
+- **"Chi ce l'ha?"**: se un libro che vuoi leggere (o che hai appena scansionato) ce l'ha un collega, l'app te lo dice.
+- **Prestiti**: richieste dal Club, accettazione, elenco dei libri prestati e ricevuti, restituzione.
+- **Obiettivo di lettura** annuale e **uso senza connessione** (consultazione della tua libreria).
 
 È fatta con HTML, CSS e JavaScript senza strumenti di build: modifichi un file, ricarichi la pagina e vedi il risultato.
 I dati stanno su [Supabase](https://supabase.com) (database gratuito) e il sito su GitHub Pages (gratuito).
@@ -24,7 +28,8 @@ I dati stanno su [Supabase](https://supabase.com) (database gratuito) e il sito 
    (regione consigliata: *Central EU (Frankfurt)*). Annota la password del database in un posto sicuro.
 2. Apri **SQL Editor → New query**, incolla tutto il contenuto di [`supabase/01-schema.sql`](supabase/01-schema.sql) e premi **Run**.
    Crea la tabella `books` e le regole di sicurezza, così ogni utente vede solo i propri libri.
-   Ripeti con [`supabase/02-club.sql`](supabase/02-club.sql), che aggiunge il club del libro.
+   Ripeti, nell'ordine, con [`supabase/02-club.sql`](supabase/02-club.sql) (club del libro)
+   e [`supabase/03-prestiti.sql`](supabase/03-prestiti.sql) (lista "Voglio leggere", prestiti, novità, obiettivo).
 3. Crea il tuo utente: **Authentication → Users → Add user → Create new user**,
    inserisci email e password e spunta **Auto Confirm User**.
 4. Chiudi le iscrizioni ad altri: **Authentication → Sign In / Providers**, disattiva
@@ -78,6 +83,10 @@ Se `js/config.js` è vuoto, parte sempre in modalità demo.
 
 La fotocamera funziona solo su `localhost` o su un sito `https` (come GitHub Pages).
 
+In modalità demo il club contiene due colleghi di esempio (Marco e Anna), così si possono provare
+la lista "Voglio leggere", "Chi ce l'ha?" e le richieste di prestito.
+Su `localhost` l'uso senza connessione è spento, per vedere subito le modifiche: si accende aggiungendo `?sw`.
+
 ## Ricerca dei libri
 
 Per ogni ISBN l'app interroga insieme Google Books e Open Library e unisce i risultati.
@@ -107,19 +116,45 @@ Per togliere qualcuno dal club elimina il suo utente da **Authentication → Use
 spariscono anche i suoi libri.
 Ricorda ai colleghi quali dati vengono salvati (nome, email e i libri che inseriscono).
 
+### Prestiti
+
+Nel Club, accanto ai libri disponibili dei colleghi, c'è **Chiedi in prestito**.
+Chi possiede il libro trova la richiesta nella scheda **Prestiti** (con un numero sulla scheda) e la accetta o rifiuta.
+Accettando, il libro risulta prestato con la data, e le altre richieste per lo stesso libro vengono rifiutate.
+Chi l'ha ricevuto lo vede in **Ho in prestito**; quando lo riporta, il proprietario preme **Restituito**.
+Si possono ancora segnare a mano i prestiti a persone fuori dal club, scrivendo il nome in "Prestato a".
+
+L'app non manda email o notifiche: richieste e novità si vedono quando la si apre.
+
+## Senza connessione
+
+Una volta aperta online, l'app si può aprire anche senza rete e mostra l'ultima copia salvata dei tuoi libri,
+in sola lettura. Club, prestiti, aggiunte e modifiche richiedono la connessione.
+La copia sta solo sul dispositivo e viene cancellata quando premi **Esci**.
+
+Dopo un aggiornamento del sito, se il telefono mostra ancora la versione vecchia basta ricaricare la pagina.
+
+## Backup
+
+Il piano gratuito di Supabase **non fa backup automatici**.
+Ogni tanto premi **Esporta** per scaricare il CSV della tua libreria (ognuno può farlo per i propri libri).
+
 ## Struttura dei file
 
 | File | Cosa contiene |
 |---|---|
-| `index.html` | La pagina: elenco, club, finestre di aggiunta, scheda libro, profilo, scansione, statistiche |
+| `index.html` | La pagina: libreria, club, prestiti, finestre di aggiunta, scheda libro, profilo, scansione, statistiche |
 | `css/style.css` | Grafica (colori in cima al file, sia chiari che scuri) |
-| `js/app.js` | Logica dell'interfaccia |
-| `js/db.js` | Lettura e salvataggio di libri, profilo e club (Supabase o modalità demo) |
+| `js/app.js` | Logica dell'interfaccia (diviso in sezioni: libreria, club, prestiti, scheda libro…) |
+| `js/ui.js` | Piccoli aiuti per costruire la pagina (copertine, stelle, date, avvisi) |
+| `js/db.js` | Lettura e salvataggio di libri, profilo, club, prestiti e obiettivo (Supabase o modalità demo) |
 | `js/lookup.js` | Ricerca dei dati per ISBN o titolo, controllo degli ISBN |
 | `js/scanner.js` | Lettura del codice a barre con la fotocamera |
 | `js/config.js` | Indirizzo e chiave di Supabase, chiave di Google Books |
 | `supabase/01-schema.sql` | Tabella dei libri e regole di sicurezza |
 | `supabase/02-club.sql` | Profili, condivisione dei libri e funzione che elenca i libri del club |
+| `supabase/03-prestiti.sql` | Prestiti, "Consigliato da", novità del club, obiettivo di lettura |
+| `sw.js` | Service worker: permette di aprire l'app senza connessione |
 | `manifest.webmanifest`, `icons/` | Nome e icona quando l'app è aggiunta alla schermata Home |
 
 ### Aggiungere un campo

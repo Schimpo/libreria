@@ -17,6 +17,8 @@
   --danger-soft: #fbe5e3;
   --star: #b7791f;
   --chart-bar: #8b3a2f;
+  --chart-track: #f4e2dc;
+  --wish-bg: #efe3f1;      --wish-text: #6a3d74;
 
   --read-bg: #e3efe6;      --read-text: #23573a;
   --reading-bg: #f7ead2;   --reading-text: #7a4f0e;
@@ -47,6 +49,8 @@
     --danger-soft: #3d2320;
     --star: #e0a33b;
     --chart-bar: #c96f5a;
+    --chart-track: #3d2a24;
+    --wish-bg: #33243a;      --wish-text: #d9b5e2;
 
     --read-bg: #1f3529;      --read-text: #9fd3b0;
     --reading-bg: #3a2d17;   --reading-text: #e9c27d;
@@ -132,6 +136,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .btn-danger { color: var(--danger); }
 .btn-danger:hover { background: var(--danger-soft); }
 .btn-block { width: 100%; }
+.btn-small { min-height: 34px; padding: 0 12px; font-size: 0.85rem; }
 
 .icon-btn {
   display: grid;
@@ -214,6 +219,7 @@ input:focus, select:focus, textarea:focus {
   font-size: 0.9rem;
   cursor: pointer;
 }
+.segmented.segmented-2 { grid-template-columns: repeat(2, 1fr); }
 .segmented input:checked + span {
   border-color: var(--accent);
   background: var(--accent-soft);
@@ -334,6 +340,18 @@ input:focus, select:focus, textarea:focus {
   cursor: pointer;
 }
 .tabs button[aria-selected="true"] { color: var(--accent); border-bottom-color: var(--accent); }
+.tab-badge {
+  display: inline-block;
+  min-width: 20px;
+  margin-left: 4px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--accent-text);
+  font-size: 0.75rem;
+  line-height: 1.4;
+  text-align: center;
+}
 
 .banner {
   margin: 0 0 12px;
@@ -458,6 +476,10 @@ input:focus, select:focus, textarea:focus {
 .badge-lent { background: var(--accent-soft); color: var(--accent); }
 .badge-available { background: var(--read-bg); color: var(--read-text); }
 .badge-shared { border: 1px solid var(--accent); color: var(--accent); padding: 1px 8px; }
+.badge-wish { background: var(--wish-bg); color: var(--wish-text); }
+.badge-new { background: var(--accent); color: var(--accent-text); }
+
+.book-reco { font-size: 0.82rem; color: var(--muted); font-style: italic; }
 
 .stars { color: var(--star); font-size: 0.85rem; letter-spacing: 1px; }
 
@@ -569,6 +591,16 @@ dialog::backdrop { background: rgb(20 14 10 / 0.5); }
   background: var(--accent-soft);
   font-size: 0.92rem;
 }
+.notice-club {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  background: var(--read-bg);
+  color: var(--read-text);
+}
+.notice-club .btn { background: var(--surface); }
 
 .book-head {
   display: grid;
@@ -711,6 +743,15 @@ dialog.scan video {
 }
 .club-head { display: grid; grid-template-columns: 56px 1fr; gap: 14px; }
 .club-avg { margin-top: 6px; font-size: 0.85rem; color: var(--text-2); }
+.club-card.is-new { border-color: var(--accent); box-shadow: inset 3px 0 0 var(--accent); }
+.club-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+}
+.entry-request { font-size: 0.85rem; color: var(--text-2); }
 .club-avg .stars { margin-right: 4px; }
 
 .club-entries {
@@ -741,6 +782,37 @@ dialog.scan video {
   cursor: pointer;
 }
 
+/* ---------- Prestiti ---------- */
+
+.loan-section { margin-bottom: 24px; }
+.loan-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.loan-row {
+  display: grid;
+  grid-template-columns: 40px 1fr;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+.loan-row .cover { width: 40px; }
+.loan-info { display: flex; flex-direction: column; min-width: 0; }
+.loan-title { font-family: var(--font-serif); font-weight: 600; line-height: 1.25; }
+.loan-text { font-size: 0.9rem; }
+.loan-detail { font-size: 0.82rem; color: var(--muted); }
+.loan-actions { grid-column: 2; display: flex; flex-wrap: wrap; gap: 6px; }
+
+@media (min-width: 640px) {
+  .loan-list { grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); }
+}
+
 /* ---------- Statistiche ---------- */
 
 .stat-tiles {
@@ -758,6 +830,29 @@ dialog.scan video {
 .stat-value { font-size: 1.7rem; font-weight: 600; line-height: 1.2; }
 
 .section-title { font-size: 1rem; margin-bottom: 12px; }
+
+/* Obiettivo di lettura */
+.goal {
+  margin-bottom: 20px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border);
+}
+.meter {
+  height: 12px;
+  border-radius: 6px;
+  background: var(--chart-track);
+  overflow: hidden;
+}
+.meter-fill {
+  display: block;
+  height: 100%;
+  min-width: 4px;
+  border-radius: 6px;
+  background: var(--chart-bar);
+}
+.goal-text { margin: 8px 0 12px; font-weight: 600; }
+.goal-form label { display: block; margin-bottom: 6px; font-size: 0.85rem; }
+.goal-form input { max-width: 140px; }
 
 .year-chart { display: grid; gap: 4px; }
 .year-row {

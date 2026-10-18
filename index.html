@@ -61,7 +61,12 @@
       </nav>
       <div id="tabs" class="tabs" role="tablist">
         <button type="button" role="tab" data-view="library" aria-selected="true">I miei libri</button>
-        <button type="button" role="tab" data-view="club" aria-selected="false">Club</button>
+        <button type="button" role="tab" data-view="club" aria-selected="false">
+          Club <span id="club-badge" class="tab-badge" hidden></span>
+        </button>
+        <button type="button" role="tab" data-view="loans" aria-selected="false">
+          Prestiti <span id="loans-badge" class="tab-badge" hidden></span>
+        </button>
       </div>
     </header>
 
@@ -69,54 +74,71 @@
       <strong>Modalità demo:</strong> i libri sono salvati solo in questo browser.
       Collega Supabase in <code>js/config.js</code> per averli su tutti i dispositivi.
     </p>
+    <p id="offline-banner" class="banner" hidden>
+      <strong>Sei offline:</strong> stai vedendo l'ultima copia salvata dei tuoi libri.
+      Per modificarli, usare il club e i prestiti serve la connessione.
+    </p>
 
     <div id="library-view">
-    <section class="toolbar">
-      <label class="search">
-        <svg class="icon"><use href="#i-search"/></svg>
-        <input id="search" type="search" placeholder="Cerca titolo, autore, ISBN…" aria-label="Cerca">
-      </label>
-      <div id="filters" class="chips" role="group" aria-label="Filtra">
-        <button type="button" data-filter="all" aria-pressed="true">Tutti</button>
-        <button type="button" data-filter="owned" aria-pressed="false">Posseduti</button>
-        <button type="button" data-filter="read" aria-pressed="false">Letti</button>
-        <button type="button" data-filter="reading" aria-pressed="false">In lettura</button>
-        <button type="button" data-filter="to_read" aria-pressed="false">Da leggere</button>
-        <button type="button" data-filter="lent" aria-pressed="false">Prestati</button>
-        <button type="button" data-filter="not_owned" aria-pressed="false">Non posseduti</button>
-        <button type="button" data-filter="shared" aria-pressed="false">Condivisi</button>
-      </div>
-      <div class="toolbar-row">
-        <span id="count" class="muted"></span>
-        <label class="sort">
-          <span class="muted">Ordina per</span>
-          <select id="sort">
-            <option value="recent">Aggiunti di recente</option>
-            <option value="title">Titolo</option>
-            <option value="author">Autore</option>
-            <option value="finished">Letti di recente</option>
-            <option value="rating">Voto</option>
-          </select>
+      <section class="toolbar">
+        <label class="search">
+          <svg class="icon"><use href="#i-search"/></svg>
+          <input id="search" type="search" placeholder="Cerca titolo, autore, ISBN…" aria-label="Cerca">
         </label>
-      </div>
-    </section>
+        <div id="filters" class="chips" role="group" aria-label="Filtra">
+          <button type="button" data-filter="all" aria-pressed="true">Tutti</button>
+          <button type="button" data-filter="wishlist" aria-pressed="false">Voglio leggere</button>
+          <button type="button" data-filter="owned" aria-pressed="false">Posseduti</button>
+          <button type="button" data-filter="read" aria-pressed="false">Letti</button>
+          <button type="button" data-filter="reading" aria-pressed="false">In lettura</button>
+          <button type="button" data-filter="to_read" aria-pressed="false">Da leggere</button>
+          <button type="button" data-filter="lent" aria-pressed="false">Prestati</button>
+          <button type="button" data-filter="not_owned" aria-pressed="false">Non posseduti</button>
+          <button type="button" data-filter="shared" aria-pressed="false">Condivisi</button>
+        </div>
+        <div class="toolbar-row">
+          <span id="count" class="muted"></span>
+          <label class="sort">
+            <span class="muted">Ordina per</span>
+            <select id="sort">
+              <option value="recent">Aggiunti di recente</option>
+              <option value="title">Titolo</option>
+              <option value="author">Autore</option>
+              <option value="finished">Letti di recente</option>
+              <option value="rating">Voto</option>
+            </select>
+          </label>
+        </div>
+      </section>
 
-    <main class="content">
-      <ul id="book-list" class="book-list"></ul>
-      <div id="empty" class="empty" hidden>
-        <h2 id="empty-title"></h2>
-        <p id="empty-text" class="muted"></p>
-      </div>
-    </main>
+      <main class="content">
+        <ul id="book-list" class="book-list"></ul>
+        <div id="empty" class="empty" hidden>
+          <h2 id="empty-title"></h2>
+          <p id="empty-text" class="muted"></p>
+        </div>
+      </main>
 
-    <div class="fab-group">
-      <button id="scan-btn" class="fab fab-secondary" type="button">
-        <svg class="icon"><use href="#i-camera"/></svg><span>Scansiona</span>
-      </button>
-      <button id="add-btn" class="fab" type="button">
-        <svg class="icon"><use href="#i-plus"/></svg><span>Aggiungi</span>
-      </button>
+      <div class="fab-group">
+        <button id="scan-btn" class="fab fab-secondary" type="button">
+          <svg class="icon"><use href="#i-camera"/></svg><span>Scansiona</span>
+        </button>
+        <button id="add-btn" class="fab" type="button">
+          <svg class="icon"><use href="#i-plus"/></svg><span>Aggiungi</span>
+        </button>
+      </div>
     </div>
+
+    <!-- Prestiti: richieste, libri prestati e ricevuti -->
+    <div id="loans-view" hidden>
+      <main class="content">
+        <div id="loans-sections"></div>
+        <div id="loans-empty" class="empty" hidden>
+          <h2 id="loans-empty-title">Nessun prestito in corso</h2>
+          <p id="loans-empty-text" class="muted">Nel Club puoi chiedere in prestito i libri disponibili dei colleghi.
+            Qui vedrai le richieste ricevute e fatte, i libri che hai prestato e quelli che hai in prestito.</p>
+        </div>
+      </main>
     </div>
 
     <!-- Club: libri condivisi da tutti i membri -->
@@ -205,6 +227,10 @@
       </header>
 
       <p id="book-notice" class="notice" hidden></p>
+      <div id="book-whohas" class="notice notice-club" hidden>
+        <span id="book-whohas-text"></span>
+        <button id="book-whohas-btn" class="btn btn-secondary btn-small" type="button" hidden>Chiedi in prestito</button>
+      </div>
 
       <div class="book-head">
         <div id="book-cover" class="cover cover-lg"></div>
@@ -219,6 +245,14 @@
           </label>
         </div>
       </div>
+
+      <fieldset id="intent-field" class="field">
+        <legend>Questo libro…</legend>
+        <div class="segmented segmented-2">
+          <label><input type="radio" name="intent" value="have"><span>Ce l'ho</span></label>
+          <label><input type="radio" name="intent" value="want"><span>Voglio leggerlo</span></label>
+        </div>
+      </fieldset>
 
       <fieldset class="field">
         <legend>Stato di lettura</legend>
@@ -253,14 +287,23 @@
           <span>Lo possiedo</span>
         </label>
       </div>
-      <label class="field" id="lent-field">
-        <span>Prestato a</span>
-        <input name="lent_to" placeholder="Lascia vuoto se è a casa">
-      </label>
+      <div class="field" id="lent-field">
+        <label for="lent-to">Prestato a</label>
+        <div class="input-row">
+          <input id="lent-to" name="lent_to" placeholder="Lascia vuoto se è a casa">
+          <button id="returned-btn" class="btn btn-secondary" type="button">Restituito</button>
+        </div>
+        <p id="lent-hint" class="hint"></p>
+      </div>
 
       <label class="field">
         <span>Note private</span>
         <textarea name="notes" rows="3" placeholder="Le vedi solo tu"></textarea>
+      </label>
+
+      <label class="field">
+        <span>Consigliato da</span>
+        <input name="recommended_by" placeholder="Chi te l'ha consigliato?">
       </label>
 
       <fieldset class="club-box">
@@ -385,6 +428,18 @@
           <svg class="icon"><use href="#i-close"/></svg>
         </button>
       </header>
+      <section class="goal">
+        <h3 id="goal-title" class="section-title">Obiettivo di lettura</h3>
+        <div id="goal-progress"></div>
+        <form id="goal-form" class="goal-form">
+          <label id="goal-label" for="goal-input" class="muted">Quanti libri vuoi leggere quest'anno?</label>
+          <div class="input-row">
+            <input id="goal-input" name="target" type="number" min="1" max="1000" inputmode="numeric" placeholder="es. 12">
+            <button class="btn btn-secondary" type="submit">Salva</button>
+          </div>
+          <p id="goal-error" class="form-error" role="alert"></p>
+        </form>
+      </section>
       <div id="stat-tiles" class="stat-tiles"></div>
       <h3 class="section-title">Libri letti per anno</h3>
       <div id="year-chart" class="year-chart"></div>

@@ -1,7 +1,11 @@
-// Interfaccia dell'app: elenco, filtri, aggiunta, modifica, scansione, club, statistiche.
+// Interfaccia dell'app: libreria, club, prestiti, scheda libro, scansione, statistiche.
 import * as db from './db.js';
 import { normalizeIsbn, lookupIsbn, searchBooks } from './lookup.js';
 import { canScan, scanIsbn } from './scanner.js';
+import {
+  $, el, stars, coverElement, simplify, plural, sum, today, formatDate, since, ago, joinNames,
+  errorMessage, toast, numberFormat, decimalFormat, toName,
+} from './ui.js';
 
 const STATUS_LABELS = {
   to_read: 'Da leggere',
@@ -10,8 +14,12 @@ const STATUS_LABELS = {
   abandoned: 'Abbandonato',
 };
 
+// "Voglio leggere": da leggere e non ancora tuo.
+const isWish = (b) => !b.owned && b.status === 'to_read';
+
 const FILTERS = {
   all: () => true,
+  wishlist: isWish,
   owned: (b) => b.owned,
   read: (b) => b.status === 'read',
   reading: (b) => b.status === 'reading',
@@ -29,62 +37,105 @@ const CLUB_FILTERS = {
   mine: (group, me) => group.entries.some((e) => e.owner_id === me),
 };
 
-// Colori delle copertine segnaposto (testo bianco leggibile su tutti).
-const PLACEHOLDER_COLORS = ['#7b4b3a', '#4f6355', '#5a5f7a', '#8a6a3b', '#6b4f6e', '#3f5f6b'];
-
-const numberFormat = new Intl.NumberFormat('it-IT');
-const decimalFormat = new Intl.NumberFormat('it-IT', { maximumFractionDigits: 1 });
-
 const state = {
+  user: null,        // { id, email } di chi ha fatto l'accesso
+  viewUserId: undefined,
+  loading: false,
+  offline: false,    // true se stiamo mostrando la copia salvata senza connessione
   books: [],
   filter: 'all',
   query: '',
   sort: 'recent',
-  editingId: null, // id del libro aperto nella scheda, null se nuovo
-  view: 'library', // 'library' oppure 'club'
-  email: '',
-  profile: null, // { display_name } oppure null se non ancora scelto
-  club: { books: [], error: null, filter: 'all', member: '', query: '' },
+  editingId: null,   // id del libro aperto nella scheda, null se nuovo
+  editingBook: null, // dati con cui è stata aperta la scheda
+  view: 'library',   // 'library', 'club' oppure 'loans'
+  profile: null,     // { display_name } oppure null se non ancora scelto
+  loans: [],
+  loansError: null,
+  goal: null,
+  readThisYear: 0,
+  club: { books: [], error: null, filter: 'all', member: '', query: '', lastSeen: null, seenNow: null },
 };
 
-let currentUserId;
 let scanController;
-
-const $ = (selector) => document.querySelector(selector);
 
 // ---------- Avvio e accesso ----------
 
 async function init() {
   bindEvents();
+  registerServiceWorker();
   $('#demo-banner').hidden = !db.isDemo;
   db.onAuthChange(showView);
-  showView(await db.getUser());
+  window.addEventListener('online', () => {
+    if (state.offline) location.reload();
+  });
+
+  const user = await db.getUser();
+  const copy = db.readOfflineCopy();
+  if (!user && !navigator.onLine && copy) showOffline(copy);
+  else showView(user);
 }
 
 async function showView(user) {
-  const userId = user?.id ?? (user ? 'demo' : null);
-  if (userId === currentUserId) return;
-  currentUserId = userId;
+  if (state.offline && !user) return; // senza rete Supabase non riconosce la sessione: restiamo sulla copia
+  const userId = user?.id ?? null;
+  if (userId === state.viewUserId) return;
+  state.viewUserId = userId;
 
+  state.user = user ? { id: user.id, email: user.email } : null;
+  state.offline = false;
+  state.books = [];
+  state.profile = null;
+  state.loans = [];
+  state.goal = null;
+  state.club.books = [];
+  state.club.lastSeen = readClubSeen();
   $('#login-view').hidden = Boolean(user);
   $('#app-view').hidden = !user;
-  state.books = [];
-  state.email = user?.email ?? '';
-  state.profile = null;
-  switchView('library');
+  $('#offline-banner').hidden = true;
   if (!user) return;
 
+  state.loading = true;
+  switchView('library');
   await loadBooks();
+  loadSocial();
   // Al primo accesso si chiede il nome da mostrare nel club.
   if (await loadProfile() && !state.profile && !db.isDemo) openProfile(true);
+}
+
+// Senza connessione mostra l'ultima copia salvata dei tuoi libri, in sola lettura.
+function showOffline(copy) {
+  state.offline = true;
+  state.viewUserId = copy.userId;
+  state.user = { id: copy.userId, email: copy.email };
+  state.books = copy.books;
+  $('#login-view').hidden = true;
+  $('#app-view').hidden = false;
+  $('#offline-banner').hidden = false;
+  switchView('library');
 }
 
 async function loadBooks() {
   try {
     state.books = await db.listBooks();
+    if (!db.isDemo) db.saveOfflineCopy(state.user, state.books);
   } catch (error) {
-    toast(`Impossibile caricare i libri: ${error.message}`, true);
+    const copy = db.readOfflineCopy();
+    if (copy?.userId === state.user.id) {
+      state.books = copy.books;
+      state.offline = true;
+      $('#offline-banner').hidden = false;
+    } else {
+      toast(`Impossibile caricare i libri: ${errorMessage(error)}`, true);
+    }
   }
+  state.loading = false;
+  render();
+}
+
+// Club e prestiti servono anche nella libreria ("Chi ce l'ha?") e per i numeri sulle schede.
+async function loadSocial() {
+  await Promise.all([loadClub(), loadLoans()]);
   render();
 }
 
@@ -98,10 +149,17 @@ async function handleLogin(event) {
     await db.signIn(form.email.value.trim(), form.password.value);
     form.reset();
   } catch (error) {
-    $('#login-error').textContent = error.message;
+    $('#login-error').textContent = errorMessage(error);
   } finally {
     button.disabled = false;
   }
+}
+
+function registerServiceWorker() {
+  // In sviluppo (localhost) resta spento, così si vedono subito le modifiche; ?sw lo accende.
+  const local = ['localhost', '127.0.0.1'].includes(location.hostname);
+  if (!('serviceWorker' in navigator) || (local && !new URLSearchParams(location.search).has('sw'))) return;
+  navigator.serviceWorker.register('sw.js').catch(() => {});
 }
 
 // ---------- Eventi ----------
@@ -117,6 +175,7 @@ function bindEvents() {
     if (tab) switchView(tab.dataset.view);
   });
 
+  // Libreria
   $('#search').addEventListener('input', (e) => {
     state.query = e.target.value;
     render();
@@ -134,9 +193,10 @@ function bindEvents() {
   });
   $('#book-list').addEventListener('click', (e) => {
     const item = e.target.closest('[data-id]');
-    if (item) openBookForm(state.books.find((b) => b.id === item.dataset.id));
+    if (item) openBookForm(findBook(item.dataset.id));
   });
 
+  // Club
   $('#club-search').addEventListener('input', (e) => {
     state.club.query = e.target.value;
     renderClub();
@@ -153,10 +213,25 @@ function bindEvents() {
     renderClub();
   });
   $('#club-list').addEventListener('click', (e) => {
-    const edit = e.target.closest('[data-id]');
-    if (edit) openBookForm(state.books.find((b) => b.id === edit.dataset.id));
+    const target = e.target.closest('[data-id], [data-want], [data-request], [data-cancel]');
+    if (!target) return;
+    if (target.dataset.id) openBookForm(findBook(target.dataset.id));
+    if (target.dataset.want) addToWishlist(target.dataset.want, target);
+    if (target.dataset.request) askToBorrow(target.dataset.request, target);
+    if (target.dataset.cancel) cancelRequest(target.dataset.cancel, target);
   });
 
+  // Prestiti
+  $('#loans-sections').addEventListener('click', (e) => {
+    const target = e.target.closest('[data-accept], [data-decline], [data-returned], [data-cancel]');
+    if (!target) return;
+    if (target.dataset.accept) answerRequest(target.dataset.accept, true, target);
+    if (target.dataset.decline) answerRequest(target.dataset.decline, false, target);
+    if (target.dataset.returned) markReturned(target.dataset.returned, target);
+    if (target.dataset.cancel) cancelRequest(target.dataset.cancel, target);
+  });
+
+  // Aggiunta e scansione
   $('#add-btn').addEventListener('click', openAddDialog);
   $('#scan-btn').addEventListener('click', startScan);
   $('#add-scan-btn').addEventListener('click', startScan);
@@ -164,13 +239,21 @@ function bindEvents() {
   $('#search-form').addEventListener('submit', handleTitleSearch);
   $('#manual-btn').addEventListener('click', () => openBookForm({}));
 
+  // Scheda libro
   $('#book-form').addEventListener('submit', handleSave);
   $('#book-form').addEventListener('change', (e) => {
-    if (e.target.name === 'status') onStatusChange();
-    if (e.target.name === 'owned' || e.target.name === 'shared') updateFormVisibility();
-    if (e.target.name === 'cover_url' || e.target.name === 'title') updateCoverPreview();
+    const name = e.target.name;
+    if (name === 'status') onStatusChange();
+    if (name === 'intent') onIntentChange();
+    if (name === 'owned') syncIntent();
+    if (name === 'owned' || name === 'shared' || name === 'lent_to') updateFormVisibility();
+    if (name === 'cover_url' || name === 'title') updateCoverPreview();
   });
   $('#delete-btn').addEventListener('click', handleDelete);
+  $('#returned-btn').addEventListener('click', handleReturnedInForm);
+  $('#book-whohas-btn').addEventListener('click', (e) => {
+    askToBorrow(e.currentTarget.dataset.entry, e.currentTarget);
+  });
   $('#rating').addEventListener('click', (e) => {
     const star = e.target.closest('[data-value]');
     if (!star) return;
@@ -180,8 +263,10 @@ function bindEvents() {
     renderRating();
   });
 
+  // Statistiche e profilo
   $('#stats-btn').addEventListener('click', openStats);
   $('#export-btn').addEventListener('click', exportCsv);
+  $('#goal-form').addEventListener('submit', handleGoalSave);
   $('#profile-btn').addEventListener('click', () => openProfile());
   $('#profile-form').addEventListener('submit', handleProfileSave);
   $('#password-form').addEventListener('submit', handlePasswordChange);
@@ -200,22 +285,63 @@ function bindEvents() {
   }
 }
 
-// ---------- Elenco ----------
+function switchView(view) {
+  // Uscendo dal club, le novità appena viste smettono di essere "nuove".
+  if (state.view === 'club' && view !== 'club' && state.club.seenNow) state.club.lastSeen = state.club.seenNow;
+  state.view = view;
+  for (const tab of $('#tabs').children) tab.setAttribute('aria-selected', tab.dataset.view === view);
+  $('#library-view').hidden = view !== 'library';
+  $('#club-view').hidden = view !== 'club';
+  $('#loans-view').hidden = view !== 'loans';
+  $('.fab-group').hidden = state.offline;
+  if (view === 'library') render();
+  if (view === 'club') loadClub();
+  if (view === 'loans') loadLoans();
+  updateBadges();
+}
+
+function updateBadges() {
+  const news = state.view === 'club' ? 0 : clubNewsCount();
+  const requests = state.loans.filter((l) => l.my_role === 'owner' && l.status === 'requested').length;
+  setBadge('#club-badge', news, `${news} novità`);
+  setBadge('#loans-badge', requests, plural(requests, 'richiesta da approvare', 'richieste da approvare'));
+}
+
+function setBadge(selector, count, label) {
+  const badge = $(selector);
+  badge.hidden = !count;
+  badge.textContent = count > 9 ? '9+' : String(count);
+  badge.setAttribute('aria-label', label);
+}
+
+// ---------- Libreria ----------
 
 function render() {
   const books = visibleBooks();
   $('#book-list').replaceChildren(...books.map(bookItem));
 
   const total = state.books.length;
+  if (state.loading) {
+    $('#count').textContent = 'Carico i tuoi libri…';
+    $('#empty').hidden = true;
+    return;
+  }
   $('#count').textContent = books.length === total
     ? plural(total, 'libro', 'libri')
     : `${books.length} di ${plural(total, 'libro', 'libri')}`;
 
   $('#empty').hidden = books.length > 0;
-  $('#empty-title').textContent = total ? 'Nessun risultato' : 'La tua libreria è vuota';
-  $('#empty-text').textContent = total
-    ? 'Nessun libro corrisponde alla ricerca o al filtro scelto.'
-    : 'Aggiungi il primo libro con “Aggiungi”, oppure inquadra il codice a barre con “Scansiona”.';
+  if (!total) {
+    $('#empty-title').textContent = 'La tua libreria è vuota';
+    $('#empty-text').textContent = 'Aggiungi il primo libro con “Aggiungi”, oppure inquadra il codice a barre con “Scansiona”.';
+  } else if (state.filter === 'wishlist' && !state.query.trim()) {
+    $('#empty-title').textContent = 'Nessun libro da leggere in lista';
+    $('#empty-text').textContent = 'Quando aggiungi un libro scegli “Voglio leggerlo”, '
+      + 'oppure premi “Voglio leggerlo” su un libro consigliato nel Club.';
+  } else {
+    $('#empty-title').textContent = 'Nessun risultato';
+    $('#empty-text').textContent = 'Nessun libro corrisponde alla ricerca o al filtro scelto.';
+  }
 }
 
 function visibleBooks() {
@@ -225,7 +351,7 @@ function visibleBooks() {
 }
 
 function matches(book, query) {
-  return [book.title, book.authors, book.isbn, book.publisher, book.genre]
+  return [book.title, book.authors, book.isbn, book.publisher, book.genre, book.recommended_by]
     .some((value) => value && simplify(value).includes(query));
 }
 
@@ -246,12 +372,17 @@ function authorKey(book) {
 }
 
 function bookItem(book) {
+  const holders = isWish(book) ? whoHas(book) : [];
   const meta = el('span', { class: 'book-meta' },
-    el('span', { class: `badge badge-${book.status}` }, STATUS_LABELS[book.status]),
+    isWish(book)
+      ? el('span', { class: 'badge badge-wish' }, 'Voglio leggerlo')
+      : el('span', { class: `badge badge-${book.status}` }, STATUS_LABELS[book.status]),
     book.owned && !book.lent_to && el('span', { class: 'badge badge-owned' }, 'Posseduto'),
-    book.owned && book.lent_to && el('span', { class: 'badge badge-lent' }, `Prestato a ${book.lent_to}`),
+    book.owned && book.lent_to && el('span', { class: 'badge badge-lent' },
+      `Prestato ${toName(book.lent_to)}${book.lent_at ? ` ${since(book.lent_at)}` : ''}`),
     book.shared && el('span', { class: 'badge badge-shared' }, 'Condiviso'),
     book.rating && stars(book.rating),
+    holders.length > 0 && el('span', { class: 'badge badge-available' }, holdersLabel(holders)),
   );
   return el('li', {},
     el('button', { class: 'book', type: 'button', 'data-id': book.id },
@@ -259,62 +390,101 @@ function bookItem(book) {
       el('span', { class: 'book-info' },
         el('span', { class: 'book-title' }, book.title),
         book.authors && el('span', { class: 'book-authors' }, book.authors),
+        book.recommended_by && el('span', { class: 'book-reco' }, `Consigliato da ${book.recommended_by}`),
         meta,
       ),
     ),
   );
 }
 
-function stars(rating) {
-  return el('span', { class: 'stars', 'aria-label': `Voto ${rating} su 5` },
-    '★'.repeat(rating) + '☆'.repeat(5 - rating));
+function findBook(id) {
+  return state.books.find((b) => b.id === id);
 }
 
-function coverElement(book, extraClass = '') {
-  const placeholder = () => el('span', {
-    class: `cover cover-placeholder ${extraClass}`,
-    style: `background:${placeholderColor(book.title ?? '')}`,
-    'aria-hidden': 'true',
-  }, book.title || '');
-
-  if (!book.cover_url) return placeholder();
-  const img = el('img', { class: `cover ${extraClass}`, src: book.cover_url, alt: '', loading: 'lazy' });
-  img.addEventListener('error', () => img.replaceWith(placeholder()), { once: true });
-  return img;
+// Due libri sono "lo stesso" se hanno lo stesso ISBN, oppure stesso titolo e primo autore
+// (così edizioni diverse dello stesso libro vengono riconosciute).
+function titleKey(book) {
+  return simplify(`${book.title ?? ''}|${(book.authors ?? '').split(',')[0].trim()}`);
 }
 
-function placeholderColor(text) {
-  let hash = 0;
-  for (const ch of text) hash = (hash * 31 + ch.codePointAt(0)) >>> 0;
-  return PLACEHOLDER_COLORS[hash % PLACEHOLDER_COLORS.length];
+function sameBook(a, b) {
+  return Boolean(a.isbn && a.isbn === b.isbn) || titleKey(a) === titleKey(b);
+}
+
+function findInLibrary(book) {
+  return state.books.find((b) => sameBook(b, book));
+}
+
+// "Chi ce l'ha?": colleghi che possiedono questo libro e l'hanno condiviso.
+function whoHas(book) {
+  return state.club.books.filter((e) => e.owner_id !== state.user?.id && e.owned && sameBook(e, book));
+}
+
+function holdersLabel(holders) {
+  const available = holders.filter((h) => h.available);
+  const list = available.length ? available : holders;
+  const names = joinNames([...new Set(list.map((h) => h.owner_name))]);
+  const verb = list.length > 1 ? "Ce l'hanno" : "Ce l'ha";
+  return `${verb} ${names}${available.length ? '' : ' (in prestito)'}`;
 }
 
 // ---------- Club ----------
 
-function switchView(view) {
-  state.view = view;
-  for (const tab of $('#tabs').children) tab.setAttribute('aria-selected', tab.dataset.view === view);
-  $('#library-view').hidden = view !== 'library';
-  $('#club-view').hidden = view !== 'club';
-  if (view === 'club') loadClub();
+async function loadClub() {
+  if (state.offline) {
+    state.club.error = 'Il club non è disponibile senza connessione.';
+  } else {
+    if (state.view === 'club') $('#club-count').textContent = 'Carico i libri del club…';
+    try {
+      state.club.books = await db.listClubBooks();
+      state.club.error = null;
+    } catch (error) {
+      state.club.books = [];
+      state.club.error = error.code === 'PGRST202'
+        ? 'La sezione club non è ancora attiva: esegui supabase/02-club.sql nel SQL Editor di Supabase.'
+        : `Impossibile caricare il club: ${errorMessage(error)}`;
+    }
+  }
+  if (state.view === 'club') {
+    renderClub();
+    markClubSeen();
+  }
+  updateBadges();
 }
 
-async function loadClub() {
-  $('#club-count').textContent = 'Carico i libri del club…';
+function clubSeenKey() {
+  return `libreria-club-visto-${state.user?.id}`;
+}
+
+function readClubSeen() {
   try {
-    state.club.books = await db.listClubBooks();
-    state.club.error = null;
-  } catch (error) {
-    state.club.books = [];
-    state.club.error = error.code === 'PGRST202'
-      ? 'La sezione club non è ancora attiva: esegui supabase/02-club.sql nel SQL Editor di Supabase.'
-      : `Impossibile caricare il club: ${error.message}`;
+    return localStorage.getItem(clubSeenKey());
+  } catch {
+    return null;
   }
-  renderClub();
+}
+
+// Le novità restano evidenziate finché resti nel club; il numero sulla scheda si azzera.
+function markClubSeen() {
+  state.club.seenNow = new Date().toISOString();
+  try {
+    localStorage.setItem(clubSeenKey(), state.club.seenNow);
+  } catch {
+    // archivio non disponibile: le novità verranno ricontate alla prossima visita
+  }
+}
+
+function isNewEntry(entry) {
+  const changed = entry.club_updated_at ?? entry.created_at;
+  return entry.owner_id !== state.user?.id && (!state.club.lastSeen || changed > state.club.lastSeen);
+}
+
+function clubNewsCount() {
+  return groupClubBooks(state.club.books).filter((g) => g.entries.some(isNewEntry)).length;
 }
 
 function renderClub() {
-  const me = currentUserId;
+  const me = state.user?.id;
   const { books, filter, error } = state.club;
   const query = simplify(state.club.query.trim());
 
@@ -354,15 +524,16 @@ function renderClub() {
   }
 }
 
-// Riunisce in una sola scheda lo stesso libro condiviso da più membri
-// (stesso ISBN, oppure stesso titolo e primo autore se l'ISBN manca).
+// Riunisce in una sola scheda lo stesso libro condiviso da più membri.
+// L'ordine è quello delle novità più recenti.
 function groupClubBooks(books) {
   const groups = new Map();
   for (const book of books) {
-    const key = book.isbn ?? simplify(`${book.title}|${(book.authors ?? '').split(',')[0].trim()}`);
-    if (!groups.has(key)) groups.set(key, { ...book, entries: [] });
+    const key = titleKey(book);
+    if (!groups.has(key)) groups.set(key, { ...book, key, entries: [] });
     const group = groups.get(key);
     group.cover_url ??= book.cover_url;
+    group.isbn ??= book.isbn;
     group.entries.push(book);
   }
   return [...groups.values()];
@@ -371,7 +542,19 @@ function groupClubBooks(books) {
 function clubItem(group) {
   const ratings = group.entries.map((e) => e.rating).filter(Boolean);
   const average = ratings.length ? ratings.reduce((a, b) => a + b, 0) / ratings.length : 0;
-  return el('li', { class: 'club-card' },
+  const isNew = group.entries.some(isNewEntry);
+  const mine = findInLibrary(group);
+
+  let action;
+  if (!mine) {
+    action = el('button', { class: 'btn btn-secondary btn-small', type: 'button', 'data-want': group.key }, 'Voglio leggerlo');
+  } else if (isWish(mine)) {
+    action = el('span', { class: 'badge badge-wish' }, 'Nella tua lista');
+  } else {
+    action = el('span', { class: 'badge badge-owned' }, 'Nella tua libreria');
+  }
+
+  return el('li', { class: `club-card${isNew ? ' is-new' : ''}` },
     el('div', { class: 'club-head' },
       coverElement(group),
       el('div', { class: 'book-info' },
@@ -380,6 +563,10 @@ function clubItem(group) {
         ratings.length > 0 && el('span', { class: 'club-avg' },
           el('span', { class: 'stars', 'aria-hidden': 'true' }, '★'),
           `${decimalFormat.format(average)} su 5 · ${plural(ratings.length, 'voto', 'voti')}`),
+        el('span', { class: 'club-actions' },
+          isNew && el('span', { class: 'badge badge-new' }, 'Novità'),
+          action,
+        ),
       ),
     ),
     el('ul', { class: 'club-entries' }, ...group.entries.map(clubEntry)),
@@ -387,11 +574,23 @@ function clubItem(group) {
 }
 
 function clubEntry(entry) {
-  const mine = entry.owner_id === currentUserId;
+  const mine = entry.owner_id === state.user?.id;
+  const request = activeRequest(entry.id);
   let availability;
-  if (!entry.owned) availability = el('span', { class: 'badge badge-owned' }, 'Non lo possiede');
+  if (entry.lent_to_me) availability = el('span', { class: 'badge badge-available' }, "Ce l'hai tu in prestito");
+  else if (!entry.owned) availability = el('span', { class: 'badge badge-owned' }, 'Non lo possiede');
   else if (entry.available) availability = el('span', { class: 'badge badge-available' }, 'Disponibile');
   else availability = el('span', { class: 'badge badge-lent' }, 'In prestito');
+
+  let action = null;
+  if (mine) {
+    action = el('button', { class: 'link-btn', type: 'button', 'data-id': entry.id }, 'Modifica');
+  } else if (request) {
+    action = el('span', { class: 'entry-request' }, 'Richiesta inviata · ',
+      el('button', { class: 'link-btn', type: 'button', 'data-cancel': request.id }, 'Annulla'));
+  } else if (entry.owned && entry.available) {
+    action = el('button', { class: 'link-btn', type: 'button', 'data-request': entry.id }, 'Chiedi in prestito');
+  }
 
   return el('li', {},
     el('div', { class: 'club-entry-head' },
@@ -399,85 +598,180 @@ function clubEntry(entry) {
       el('span', { class: `badge badge-${entry.status}` }, STATUS_LABELS[entry.status]),
       entry.rating && stars(entry.rating),
       availability,
-      mine && el('button', { class: 'link-btn', type: 'button', 'data-id': entry.id }, 'Modifica'),
+      action,
     ),
     entry.club_comment && el('p', { class: 'club-comment' }, entry.club_comment),
   );
 }
 
-// ---------- Profilo ----------
+// Aggiunge alla lista "Voglio leggere" un libro visto nel club, ricordando chi lo consiglia.
+async function addToWishlist(key, button) {
+  const group = groupClubBooks(state.club.books).find((g) => g.key === key);
+  if (!group) return;
+  const others = group.entries.filter((e) => e.owner_id !== state.user?.id);
+  const fans = others.filter((e) => e.rating >= 4);
+  const names = [...new Set((fans.length ? fans : others).map((e) => e.owner_name))];
+  const pick = (field) => group.entries.find((e) => e[field] != null)?.[field] ?? null;
 
-// Restituisce false se il profilo non si può leggere (es. 02-club.sql non ancora eseguito).
-async function loadProfile() {
-  try {
-    state.profile = await db.getProfile();
-    return true;
-  } catch {
-    state.profile = null;
-    return false;
-  }
-}
-
-function openProfile(isWelcome = false) {
-  $('#profile-form').elements.display_name.value = state.profile?.display_name ?? '';
-  $('#profile-intro').hidden = !isWelcome;
-  $('#profile-error').textContent = '';
-  $('#password-error').textContent = '';
-  $('#password-form').reset();
-  $('#password-form').hidden = db.isDemo;
-  $('#logout-btn').hidden = db.isDemo;
-  $('#profile-email').textContent = db.isDemo ? 'demo' : state.email;
-  $('#profile-dialog').showModal();
-}
-
-async function handleProfileSave(event) {
-  event.preventDefault();
-  const form = event.currentTarget;
-  const button = form.querySelector('[type="submit"]');
-  const name = form.elements.display_name.value.trim();
-  $('#profile-error').textContent = '';
-  if (!name) {
-    $('#profile-error').textContent = 'Scrivi il nome che vedranno gli altri.';
-    return;
-  }
   button.disabled = true;
   try {
-    await db.saveProfile(name);
-    state.profile = { display_name: name };
-    $('#profile-intro').hidden = true;
-    toast('Nome salvato.');
-    if (state.view === 'club') loadClub();
+    const created = await db.createBook({
+      title: group.title,
+      authors: group.authors ?? null,
+      isbn: pick('isbn'),
+      publisher: pick('publisher'),
+      published_year: pick('published_year'),
+      pages: pick('pages'),
+      genre: pick('genre'),
+      cover_url: pick('cover_url'),
+      owned: false,
+      status: 'to_read',
+      recommended_by: names.length ? joinNames(names) : null,
+    });
+    state.books = [created, ...state.books];
+    render();
+    renderClub();
+    toast('Aggiunto alla lista “Voglio leggere”.');
   } catch (error) {
-    $('#profile-error').textContent = error.message;
+    button.disabled = false;
+    toast(errorMessage(error), true);
+  }
+}
+
+// ---------- Prestiti ----------
+
+async function loadLoans() {
+  if (state.offline) {
+    state.loansError = 'I prestiti non sono disponibili senza connessione.';
+  } else {
+    try {
+      state.loans = await db.listLoans();
+      state.loansError = null;
+    } catch (error) {
+      state.loans = [];
+      state.loansError = error.code === 'PGRST202'
+        ? 'La sezione prestiti non è ancora attiva: esegui supabase/03-prestiti.sql nel SQL Editor di Supabase.'
+        : `Impossibile caricare i prestiti: ${errorMessage(error)}`;
+    }
+  }
+  updateBadges();
+  if (state.view === 'loans') renderLoans();
+  if (state.view === 'club') renderClub();
+}
+
+// Richiesta ancora aperta (in attesa di risposta) fatta da te per questo libro del club.
+function activeRequest(bookId) {
+  return state.loans.find((l) => l.book_id === bookId && l.my_role === 'borrower' && l.status === 'requested');
+}
+
+function renderLoans() {
+  const loans = state.loans;
+  const incoming = loans.filter((l) => l.my_role === 'owner' && l.status === 'requested');
+  const borrowed = loans.filter((l) => l.my_role === 'borrower' && l.status === 'accepted');
+  const lent = state.books.filter((b) => b.owned && b.lent_to);
+  const outgoing = loans.filter((l) => l.my_role === 'borrower' && ['requested', 'declined'].includes(l.status));
+
+  const smallBtn = (label, attr, id, primary = false) => el('button', {
+    class: `btn btn-small ${primary ? 'btn-primary' : 'btn-secondary'}`, type: 'button', [attr]: id,
+  }, label);
+
+  const sections = [
+    ['Richieste da approvare', incoming.map((l) => loanRow(l,
+      `${l.other_name} vorrebbe prenderlo in prestito`,
+      `Richiesta di ${ago(l.requested_at)}`,
+      smallBtn('Accetta', 'data-accept', l.id, true),
+      smallBtn('Rifiuta', 'data-decline', l.id)))],
+    ['Ho in prestito', borrowed.map((l) => loanRow(l,
+      `Prestato da ${l.other_name} ${since(l.answered_at ?? l.requested_at)}`,
+      `Quando lo restituisci, ${l.other_name} lo segnerà come restituito.`))],
+    ['Ho prestato', lent.map((b) => loanRow(b,
+      `Prestato ${toName(b.lent_to)}${b.lent_at ? ` ${since(b.lent_at)}` : ''}`,
+      b.borrower_id ? 'Prestito fatto tramite il club' : null,
+      smallBtn('Restituito', 'data-returned', b.id)))],
+    ['Le mie richieste', outgoing.map((l) => (l.status === 'declined'
+      ? loanRow(l, `${l.other_name} non può prestarlo ora`, `Risposta di ${ago(l.answered_at ?? l.requested_at)}`)
+      : loanRow(l, `Chiesto ${toName(l.other_name)}, in attesa di risposta`, `Richiesta di ${ago(l.requested_at)}`,
+        smallBtn('Annulla', 'data-cancel', l.id))))],
+  ].filter(([, rows]) => rows.length);
+
+  $('#loans-sections').replaceChildren(...sections.map(([title, rows]) => el('section', { class: 'loan-section' },
+    el('h2', { class: 'section-title' }, title),
+    el('ul', { class: 'loan-list' }, ...rows),
+  )));
+
+  $('#loans-empty').hidden = sections.length > 0;
+  $('#loans-empty-title').textContent = state.loansError ? 'Prestiti non disponibili' : 'Nessun prestito in corso';
+  $('#loans-empty-text').textContent = state.loansError
+    ?? 'Nel Club puoi chiedere in prestito i libri disponibili dei colleghi. Qui vedrai le richieste '
+      + 'ricevute e fatte, i libri che hai prestato e quelli che hai in prestito.';
+}
+
+function loanRow(book, text, detail, ...actions) {
+  return el('li', { class: 'loan-row' },
+    coverElement(book),
+    el('div', { class: 'loan-info' },
+      el('span', { class: 'loan-title' }, book.title),
+      el('span', { class: 'loan-text' }, text),
+      detail && el('span', { class: 'loan-detail' }, detail),
+    ),
+    actions.length > 0 && el('div', { class: 'loan-actions' }, ...actions),
+  );
+}
+
+async function askToBorrow(clubBookId, button) {
+  const entry = state.club.books.find((b) => b.id === clubBookId);
+  button.disabled = true;
+  try {
+    await db.requestLoan(clubBookId);
+    toast(`Richiesta inviata ${entry ? toName(entry.owner_name) : 'a chi possiede il libro'}.`);
+    await loadLoans();
+    if ($('#book-dialog').open) updateWhoHas();
+  } catch (error) {
+    toast(errorMessage(error), true);
   } finally {
     button.disabled = false;
   }
 }
 
-async function handlePasswordChange(event) {
-  event.preventDefault();
-  const form = event.currentTarget;
-  const button = form.querySelector('[type="submit"]');
-  const { password, confirm } = form.elements;
-  const error = $('#password-error');
-  error.textContent = '';
-  if (password.value.length < 8) {
-    error.textContent = 'La password deve avere almeno 8 caratteri.';
-    return;
-  }
-  if (password.value !== confirm.value) {
-    error.textContent = 'Le due password non coincidono.';
-    return;
-  }
+async function cancelRequest(loanId, button) {
   button.disabled = true;
   try {
-    await db.changePassword(password.value);
-    form.reset();
-    toast('Password cambiata.');
-  } catch (e) {
-    error.textContent = e.message;
-  } finally {
+    await db.cancelLoan(loanId);
+    toast('Richiesta annullata.');
+    await loadLoans();
+  } catch (error) {
     button.disabled = false;
+    toast(errorMessage(error), true);
+  }
+}
+
+async function answerRequest(loanId, accept, button) {
+  const loan = state.loans.find((l) => l.id === loanId);
+  button.disabled = true;
+  try {
+    await db.respondLoan(loanId, accept);
+    toast(accept
+      ? `Fatto: “${loan?.title}” risulta prestato ${toName(loan?.other_name ?? '')}.`
+      : 'Richiesta rifiutata.');
+    if (accept) await loadBooks(); // il libro ora risulta prestato
+    await loadLoans();
+  } catch (error) {
+    button.disabled = false;
+    toast(errorMessage(error), true);
+  }
+}
+
+async function markReturned(bookId, button) {
+  button.disabled = true;
+  try {
+    const updated = await db.updateBook(bookId, { lent_to: null });
+    state.books = state.books.map((b) => (b.id === updated.id ? updated : b));
+    render();
+    toast('Segnato come restituito.');
+    await loadLoans(); // un prestito fatto tramite il club si chiude da solo
+  } catch (error) {
+    button.disabled = false;
+    toast(errorMessage(error), true);
   }
 }
 
@@ -515,7 +809,9 @@ async function handleIsbnSearch(event) {
 async function openIsbn(isbn) {
   const existing = state.books.find((b) => b.isbn === isbn);
   if (existing) {
-    openBookForm(existing, 'Questo libro è già nella tua libreria.');
+    openBookForm(existing, isWish(existing)
+      ? 'Questo libro è già nella tua lista “Voglio leggere”.'
+      : 'Questo libro è già nella tua libreria.');
     return;
   }
   const found = await lookupIsbn(isbn).catch(() => null);
@@ -556,7 +852,7 @@ async function handleTitleSearch(event) {
       return el('li', {}, button);
     }));
   } catch (error) {
-    status.textContent = error.message;
+    status.textContent = errorMessage(error);
   }
 }
 
@@ -596,6 +892,7 @@ function openBookForm(book, notice = '') {
   const form = $('#book-form');
   const isNew = !book.id;
   state.editingId = book.id ?? null;
+  state.editingBook = book;
   form.reset();
 
   const values = {
@@ -603,6 +900,7 @@ function openBookForm(book, notice = '') {
     status: 'to_read',
     ...Object.fromEntries(Object.entries(book).filter(([, v]) => v != null)),
   };
+  values.intent = values.owned ? 'have' : 'want';
   for (const input of form.elements) {
     if (!input.name) continue;
     if (input.type === 'checkbox') input.checked = Boolean(values[input.name]);
@@ -615,11 +913,13 @@ function openBookForm(book, notice = '') {
   $('#book-notice').hidden = !notice;
   $('#book-error').textContent = '';
   $('#delete-btn').hidden = isNew;
+  $('#intent-field').hidden = !isNew;
   form.querySelector('details.more').open = isNew && !book.title;
 
   renderRating();
   updateFormVisibility();
   updateCoverPreview();
+  updateWhoHas();
 
   $('#add-dialog').close();
   const dialog = $('#book-dialog');
@@ -627,22 +927,85 @@ function openBookForm(book, notice = '') {
   form.scrollTop = 0;
 }
 
+// Nella scheda di un libro che non hai, dice chi del club ce l'ha e permette di chiederlo.
+function updateWhoHas() {
+  const book = state.editingBook;
+  const form = $('#book-form').elements;
+  const holders = book && !form.owned.checked ? whoHas({ ...book, title: form.title.value, authors: form.authors.value }) : [];
+  $('#book-whohas').hidden = holders.length === 0;
+  if (!holders.length) return;
+
+  const requested = holders.find((h) => activeRequest(h.id));
+  const available = holders.find((h) => h.available && !h.lent_to_me);
+  const button = $('#book-whohas-btn');
+  $('#book-whohas-text').textContent = `${holdersLabel(holders)}${requested ? ' · richiesta inviata' : ''}.`;
+  button.hidden = Boolean(requested || !available || state.offline);
+  if (available) {
+    button.dataset.entry = available.id;
+    button.textContent = `Chiedi in prestito ${toName(available.owner_name)}`;
+  }
+}
+
 function onStatusChange() {
   const form = $('#book-form');
   const status = form.elements.status.value;
-  const today = new Date().toISOString().slice(0, 10);
-  if (status === 'reading' && !form.elements.started_at.value) form.elements.started_at.value = today;
-  if (status === 'read' && !form.elements.finished_at.value) form.elements.finished_at.value = today;
+  if (status === 'reading' && !form.elements.started_at.value) form.elements.started_at.value = today();
+  if (status === 'read' && !form.elements.finished_at.value) form.elements.finished_at.value = today();
   updateFormVisibility();
 }
 
+// Scelta rapida per i libri nuovi: "Ce l'ho" o "Voglio leggerlo".
+function onIntentChange() {
+  const form = $('#book-form').elements;
+  const want = form.intent.value === 'want';
+  form.owned.checked = !want;
+  if (want) {
+    for (const radio of form.status) radio.checked = radio.value === 'to_read';
+  }
+  updateFormVisibility();
+}
+
+function syncIntent() {
+  const form = $('#book-form').elements;
+  for (const radio of form.intent) radio.checked = radio.value === (form.owned.checked ? 'have' : 'want');
+}
+
 function updateFormVisibility() {
-  const form = $('#book-form');
-  const status = form.elements.status.value;
+  const form = $('#book-form').elements;
+  const status = form.status.value;
+  const book = state.editingBook ?? {};
   $('#started-field').hidden = status === 'to_read';
   $('#finished-field').hidden = !['read', 'abandoned'].includes(status);
-  $('#lent-field').hidden = !form.elements.owned.checked;
-  $('#club-comment-field').hidden = !form.elements.shared.checked;
+  $('#lent-field').hidden = !form.owned.checked;
+  $('#club-comment-field').hidden = !form.shared.checked;
+
+  // "Restituito" e data del prestito, solo per un prestito già salvato.
+  const savedLoan = state.editingId && book.lent_to && form.lent_to.value === book.lent_to;
+  $('#returned-btn').hidden = !savedLoan;
+  $('#lent-hint').textContent = savedLoan && book.lent_at
+    ? `In prestito ${since(book.lent_at)} (dal ${formatDate(book.lent_at)})`
+      + (book.borrower_id ? ' · prestito fatto tramite il club.' : '.')
+    : '';
+  updateWhoHas();
+}
+
+async function handleReturnedInForm(event) {
+  const button = event.currentTarget;
+  button.disabled = true;
+  try {
+    const updated = await db.updateBook(state.editingId, { lent_to: null });
+    state.books = state.books.map((b) => (b.id === updated.id ? updated : b));
+    state.editingBook = updated;
+    $('#book-form').elements.lent_to.value = '';
+    updateFormVisibility();
+    render();
+    toast('Segnato come restituito.');
+    loadLoans();
+  } catch (error) {
+    toast(errorMessage(error), true);
+  } finally {
+    button.disabled = false;
+  }
 }
 
 function updateCoverPreview() {
@@ -697,6 +1060,7 @@ function readForm() {
     started_at: status === 'to_read' ? null : text('started_at'),
     finished_at: ['read', 'abandoned'].includes(status) ? text('finished_at') : null,
     notes: text('notes'),
+    recommended_by: text('recommended_by'),
     shared: f.shared.checked,
     club_comment: text('club_comment'),
   };
@@ -718,18 +1082,19 @@ async function handleSave(event) {
     $('#book-dialog').close();
     render();
     if (state.view === 'club') loadClub();
-    toast('Libro salvato.');
+    if (state.view === 'loans') renderLoans();
+    toast(isWish(data) && !state.editingId ? 'Aggiunto alla lista “Voglio leggere”.' : 'Libro salvato.');
     // Chi condivide il primo libro senza aver scelto un nome lo sceglie ora.
     if (data.shared && !state.profile && await loadProfile() && !state.profile) openProfile(true);
   } catch (error) {
-    $('#book-error').textContent = error.message;
+    $('#book-error').textContent = errorMessage(error);
   } finally {
     button.disabled = false;
   }
 }
 
 async function handleDelete() {
-  const book = state.books.find((b) => b.id === state.editingId);
+  const book = findBook(state.editingId);
   if (!book || !confirm(`Eliminare “${book.title}” dalla libreria?`)) return;
   try {
     await db.deleteBook(book.id);
@@ -737,19 +1102,98 @@ async function handleDelete() {
     $('#book-dialog').close();
     render();
     if (state.view === 'club') loadClub();
+    if (state.view === 'loans') loadLoans();
     toast('Libro eliminato.');
   } catch (error) {
-    $('#book-error').textContent = error.message;
+    $('#book-error').textContent = errorMessage(error);
   }
 }
 
-// ---------- Statistiche ----------
+// ---------- Profilo ----------
 
-function openStats() {
+// Restituisce false se il profilo non si può leggere (es. 02-club.sql non ancora eseguito).
+async function loadProfile() {
+  if (state.offline) return false;
+  try {
+    state.profile = await db.getProfile();
+    return true;
+  } catch {
+    state.profile = null;
+    return false;
+  }
+}
+
+function openProfile(isWelcome = false) {
+  $('#profile-form').elements.display_name.value = state.profile?.display_name ?? '';
+  $('#profile-intro').hidden = !isWelcome;
+  $('#profile-error').textContent = '';
+  $('#password-error').textContent = '';
+  $('#password-form').reset();
+  $('#password-form').hidden = db.isDemo;
+  $('#logout-btn').hidden = db.isDemo;
+  $('#profile-email').textContent = db.isDemo ? 'demo' : state.user?.email ?? '';
+  $('#profile-dialog').showModal();
+}
+
+async function handleProfileSave(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const button = form.querySelector('[type="submit"]');
+  const name = form.elements.display_name.value.trim();
+  $('#profile-error').textContent = '';
+  if (!name) {
+    $('#profile-error').textContent = 'Scrivi il nome che vedranno gli altri.';
+    return;
+  }
+  button.disabled = true;
+  try {
+    await db.saveProfile(name);
+    state.profile = { display_name: name };
+    $('#profile-intro').hidden = true;
+    toast('Nome salvato.');
+    if (state.view === 'club') loadClub();
+  } catch (error) {
+    $('#profile-error').textContent = errorMessage(error);
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function handlePasswordChange(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const button = form.querySelector('[type="submit"]');
+  const { password, confirm } = form.elements;
+  const error = $('#password-error');
+  error.textContent = '';
+  if (password.value.length < 8) {
+    error.textContent = 'La password deve avere almeno 8 caratteri.';
+    return;
+  }
+  if (password.value !== confirm.value) {
+    error.textContent = 'Le due password non coincidono.';
+    return;
+  }
+  button.disabled = true;
+  try {
+    await db.changePassword(password.value);
+    form.reset();
+    toast('Password cambiata.');
+  } catch (e) {
+    error.textContent = errorMessage(e);
+  } finally {
+    button.disabled = false;
+  }
+}
+
+// ---------- Statistiche e obiettivo ----------
+
+async function openStats() {
   const books = state.books;
   const year = new Date().getFullYear();
   const read = books.filter((b) => b.status === 'read');
   const readThisYear = read.filter((b) => b.finished_at?.startsWith(String(year)));
+  state.readThisYear = readThisYear.length;
 
   const tiles = [
     ['Libri in libreria', books.length],
@@ -757,6 +1201,7 @@ function openStats() {
     ['Letti', read.length],
     [`Letti nel ${year}`, readThisYear.length],
     [`Pagine lette nel ${year}`, sum(readThisYear, 'pages')],
+    ['Voglio leggere', books.filter(isWish).length],
     ['In prestito', books.filter(FILTERS.lent).length],
     ['Condivisi con il club', books.filter(FILTERS.shared).length],
   ];
@@ -788,7 +1233,73 @@ function openStats() {
     );
   }) : [el('p', { class: 'muted' }, 'Quando segnerai un libro come “Letto” lo vedrai qui.')]));
 
+  $('#goal-error').textContent = '';
+  renderGoal();
   $('#stats-dialog').showModal();
+
+  $('#goal-form').hidden = state.offline;
+  if (state.offline) return;
+  try {
+    state.goal = await db.getGoal(year);
+  } catch (error) {
+    state.goal = null;
+    $('#goal-error').textContent = goalErrorMessage(error);
+  }
+  renderGoal();
+}
+
+function renderGoal() {
+  const year = new Date().getFullYear();
+  const goal = state.goal;
+  const done = state.readThisYear;
+  $('#goal-title').textContent = `Obiettivo ${year}`;
+  $('#goal-input').value = goal ?? '';
+  $('#goal-label').textContent = goal
+    ? 'Cambia obiettivo (lascia vuoto per toglierlo)'
+    : `Quanti libri vuoi leggere nel ${year}?`;
+  if (!goal) {
+    $('#goal-progress').replaceChildren();
+    return;
+  }
+  const percent = Math.min(100, Math.round((done / goal) * 100));
+  $('#goal-progress').replaceChildren(
+    el('div', {
+      class: 'meter', role: 'progressbar', 'aria-valuemin': 0, 'aria-valuemax': goal, 'aria-valuenow': Math.min(done, goal),
+      'aria-label': `${done} libri letti su ${goal}`,
+    }, el('span', { class: 'meter-fill', style: `width:${percent}%` })),
+    el('p', { class: 'goal-text' }, done >= goal
+      ? `Obiettivo raggiunto: ${plural(done, 'libro letto', 'libri letti')} su ${goal}!`
+      : `${plural(done, 'libro letto', 'libri letti')} su ${goal} · ${percent}%`),
+  );
+}
+
+async function handleGoalSave(event) {
+  event.preventDefault();
+  const button = event.currentTarget.querySelector('[type="submit"]');
+  const raw = $('#goal-input').value;
+  const target = raw ? Number.parseInt(raw, 10) : null;
+  $('#goal-error').textContent = '';
+  if (target !== null && !(target >= 1 && target <= 1000)) {
+    $('#goal-error').textContent = 'Scrivi un numero tra 1 e 1000, oppure lascia vuoto.';
+    return;
+  }
+  button.disabled = true;
+  try {
+    await db.saveGoal(new Date().getFullYear(), target);
+    state.goal = target;
+    renderGoal();
+    toast(target ? 'Obiettivo salvato.' : 'Obiettivo tolto.');
+  } catch (error) {
+    $('#goal-error').textContent = goalErrorMessage(error);
+  } finally {
+    button.disabled = false;
+  }
+}
+
+function goalErrorMessage(error) {
+  return ['PGRST205', '42P01'].includes(error.code)
+    ? "L'obiettivo non è ancora attivo: esegui supabase/03-prestiti.sql nel SQL Editor di Supabase."
+    : errorMessage(error);
 }
 
 // ---------- Esportazione CSV ----------
@@ -797,8 +1308,10 @@ function exportCsv() {
   const columns = [
     ['title', 'Titolo'], ['authors', 'Autori'], ['isbn', 'ISBN'], ['publisher', 'Editore'],
     ['published_year', 'Anno'], ['pages', 'Pagine'], ['genre', 'Genere'], ['language', 'Lingua'],
-    ['owned', 'Posseduto'], ['lent_to', 'Prestato a'], ['status', 'Stato'], ['rating', 'Voto'],
+    ['owned', 'Posseduto'], ['lent_to', 'Prestato a'], ['lent_at', 'Prestato dal'],
+    ['status', 'Stato'], ['rating', 'Voto'],
     ['started_at', 'Iniziato il'], ['finished_at', 'Finito il'], ['notes', 'Note private'],
+    ['recommended_by', 'Consigliato da'],
     ['shared', 'Condiviso'], ['club_comment', 'Commento per il club'],
     ['cover_url', 'Copertina'], ['created_at', 'Aggiunto il'],
   ];
@@ -820,47 +1333,10 @@ function exportCsv() {
   const blob = new Blob(['\ufeff' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
   const link = el('a', {
     href: URL.createObjectURL(blob),
-    download: `libreria-${new Date().toISOString().slice(0, 10)}.csv`,
+    download: `libreria-${today()}.csv`,
   });
   link.click();
   setTimeout(() => URL.revokeObjectURL(link.href), 1000);
-}
-
-// ---------- Utilità ----------
-
-// Crea un elemento DOM. I figli falsy vengono ignorati, le stringhe diventano testo.
-function el(tag, attrs = {}, ...children) {
-  const node = document.createElement(tag);
-  for (const [key, value] of Object.entries(attrs)) node.setAttribute(key, value);
-  node.append(...children.filter((c) => c || c === 0));
-  return node;
-}
-
-function simplify(text) {
-  return String(text).toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '');
-}
-
-function plural(n, one, many) {
-  return `${numberFormat.format(n)} ${n === 1 ? one : many}`;
-}
-
-function sum(books, key) {
-  return books.reduce((total, b) => total + (b[key] ?? 0), 0);
-}
-
-let toastTimer;
-function toast(message, isError = false) {
-  const node = $('#toast');
-  node.textContent = message;
-  node.classList.toggle('error', isError);
-  // Come popover l'avviso resta visibile anche sopra le finestre aperte.
-  if (node.showPopover && !node.matches(':popover-open')) node.showPopover();
-  node.classList.add('show');
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => {
-    node.classList.remove('show');
-    toastTimer = setTimeout(() => node.hidePopover?.(), 200);
-  }, isError ? 5000 : 2500);
 }
 
 init();
