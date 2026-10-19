@@ -4,7 +4,7 @@ import { normalizeIsbn, lookupIsbn, searchBooks } from './lookup.js';
 import { canScan, scanIsbn } from './scanner.js';
 import {
   $, el, stars, coverElement, simplify, plural, sum, today, formatDate, since, ago, joinNames,
-  errorMessage, toast, numberFormat, decimalFormat, toName,
+  errorMessage, toast, numberFormat, decimalFormat, toName, openDialog,
 } from './ui.js';
 
 const STATUS_LABELS = {
@@ -783,7 +783,7 @@ function openAddDialog() {
   $('#isbn-error').textContent = '';
   $('#search-status').textContent = '';
   $('#search-results').replaceChildren();
-  $('#add-dialog').showModal();
+  openDialog($('#add-dialog'));
 }
 
 async function handleIsbnSearch(event) {
@@ -867,7 +867,7 @@ async function startScan() {
   const dialog = $('#scan-dialog');
   scanController = new AbortController();
   $('#scan-status').textContent = 'Avvio la fotocamera…';
-  dialog.showModal();
+  openDialog(dialog);
 
   let isbn;
   try {
@@ -923,7 +923,7 @@ function openBookForm(book, notice = '') {
 
   $('#add-dialog').close();
   const dialog = $('#book-dialog');
-  if (!dialog.open) dialog.showModal();
+  openDialog(dialog);
   form.scrollTop = 0;
 }
 
@@ -1132,7 +1132,7 @@ function openProfile(isWelcome = false) {
   $('#password-form').hidden = db.isDemo;
   $('#logout-btn').hidden = db.isDemo;
   $('#profile-email').textContent = db.isDemo ? 'demo' : state.user?.email ?? '';
-  $('#profile-dialog').showModal();
+  openDialog($('#profile-dialog'));
 }
 
 async function handleProfileSave(event) {
@@ -1235,7 +1235,7 @@ async function openStats() {
 
   $('#goal-error').textContent = '';
   renderGoal();
-  $('#stats-dialog').showModal();
+  openDialog($('#stats-dialog'));
 
   $('#goal-form').hidden = state.offline;
   if (state.offline) return;

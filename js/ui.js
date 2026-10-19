@@ -98,6 +98,14 @@ export function errorMessage(error) {
   return offline ? 'Sei offline: serve la connessione per questa operazione.' : error.message;
 }
 
+// Apre una finestra e sposta il fuoco sulla finestra stessa: così su iPhone/Safari
+// non compare il bordo di selezione attorno al pulsante di chiusura.
+export function openDialog(dialog) {
+  if (!dialog.open) dialog.showModal();
+  dialog.tabIndex = -1;
+  dialog.focus({ preventScroll: true });
+}
+
 let toastTimer;
 export function toast(message, isError = false) {
   const node = $('#toast');

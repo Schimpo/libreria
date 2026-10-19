@@ -554,9 +554,12 @@ dialog.sheet {
 }
 dialog.sheet[open] { display: flex; flex-direction: column; }
 dialog::backdrop { background: rgb(20 14 10 / 0.5); }
+dialog:focus { outline: none; }
 
 .sheet-body {
-  flex: 1;
+  /* "1 1 auto" e non "1": con base 0 alcune versioni di Safari su iPhone
+     calcolano la finestra alta una riga. */
+  flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -926,6 +929,7 @@ dialog.scan video {
 
 @media (max-width: 639px) {
   .topbar .label { display: none; }
+  .sort select { font-size: 16px; } /* sotto i 16px iPhone ingrandisce la pagina */
   .topbar .btn { padding: 0 10px; }
 
   dialog.sheet {

@@ -44,7 +44,7 @@ self.addEventListener('fetch', (event) => {
 async function networkFirst(request) {
   const cache = await caches.open(CACHE);
   try {
-    const response = await fetch(request, { signal: AbortSignal.timeout(NETWORK_TIMEOUT_MS) });
+    const response = await fetch(request, { signal: AbortSignal.timeout?.(NETWORK_TIMEOUT_MS) });
     if (response.ok) cache.put(request, response.clone());
     return response;
   } catch (error) {

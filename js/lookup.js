@@ -136,7 +136,8 @@ async function searchOpenLibrary(q) {
 // ---- Utilità ----
 
 async function getJson(url) {
-  const res = await fetch(url, { signal: AbortSignal.timeout(TIMEOUT_MS) });
+  // AbortSignal.timeout manca su iPhone con iOS precedenti al 16.
+  const res = await fetch(url, { signal: AbortSignal.timeout?.(TIMEOUT_MS) });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
 }
