@@ -17,8 +17,8 @@ codici a barre, il PC per inserire e consultare.
 
 ## Regole da non violare
 
-- **Semplice e leggibile**: niente framework, niente build, niente strumenti nuovi. Chi la mantiene vuole
-  poter modificare il codice da solo: modifiche piccole e commenti in italiano.
+- **Semplice e leggibile**: niente framework, niente build. Chi la mantiene vuole poter modificare il
+  codice da solo: modifiche piccole e commenti in italiano.
 - **La sicurezza sta nelle regole RLS di Supabase** (`supabase/*.sql`): ogni utente vede solo i
   propri libri. Il club vede solo titolo, stato di lettura, voto, commento e disponibilità al
   prestito; note private, date di lettura e nome di chi ha il libro restano del proprietario.
