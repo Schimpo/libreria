@@ -30,8 +30,11 @@ codici a barre, il PC per inserire e consultare.
 - Le modifiche al database sono file numerati in `supabase/` (01, 02, 03…), eseguiti a mano
   nell'SQL Editor di Supabase, nell'ordine.
 - L'unico codice che gira sui server di Supabase è la Edge Function `sbn`
-  (`supabase/functions/sbn/index.ts`). *Verify JWT* deve restare attivo: risponde solo a chi ha
-  fatto l'accesso. Dopo ogni modifica al file va ripubblicata a mano dalla dashboard.
+  (`supabase/functions/sbn/index.ts`). *Verify JWT* deve restare attivo, ma **non basta**: con le
+  nuove chiavi lascia passare anche la chiave publishable, quindi il controllo vero è quello nel
+  codice (token verificato con `/auth/v1/user`). Non toglierlo. Dopo ogni modifica al file va
+  ripubblicata a mano dalla dashboard; l'indirizzo deve finire con `/functions/v1/sbn` (il nome
+  scelto alla prima pubblicazione non si può più cambiare).
 
 ## Trappole note
 

@@ -104,10 +104,13 @@ La ricerca per titolo usa Google Books e Open Library. In modalità demo SBN non
 ### Pubblicare la funzione `sbn` (una volta, e dopo ogni modifica al file)
 
 1. Nella dashboard di Supabase apri **Edge Functions** → **Deploy a new function** → **Via Editor**.
-2. Chiama la funzione esattamente `sbn`, cancella il codice d'esempio e incolla tutto il contenuto
+2. **Prima di pubblicare**, nel campo del nome della funzione scrivi `sbn`. Il nome diventa l'indirizzo
+   (`…/functions/v1/sbn`) e dopo non si può più cambiare: rinominarla cambia solo l'etichetta.
+3. Cancella **tutto** il codice d'esempio (quello che risponde "Hello …") e incolla tutto il contenuto
    di [`supabase/functions/sbn/index.ts`](supabase/functions/sbn/index.ts).
-3. Premi **Deploy function** e aspetta qualche secondo.
-4. Nelle impostazioni della funzione controlla che la verifica del JWT (*Verify JWT*) sia **attiva**.
+4. Premi **Deploy function** e aspetta qualche secondo.
+5. Nelle impostazioni della funzione controlla che la verifica del JWT (*Verify JWT*) sia **attiva**.
+6. Controllo: nell'elenco **Edge Functions** l'indirizzo (colonna URL) deve finire con `/functions/v1/sbn`.
 
 Per aggiornarla: apri la funzione, incolla il nuovo codice e premi **Deploy updates**.
 Se la funzione non è pubblicata o non risponde, la ricerca continua con Google Books e Open Library.
