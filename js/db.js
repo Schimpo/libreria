@@ -151,6 +151,17 @@ export async function listClubBooks() {
   return data;
 }
 
+// ---- Catalogo delle biblioteche italiane (OPAC SBN) ----
+
+// Cerca un ISBN tramite la funzione Supabase "sbn" (vedi supabase/functions/sbn/index.ts).
+// Restituisce null se il libro non c'è, in modalità demo o se la funzione non risponde:
+// in quei casi la ricerca usa solo le altre fonti.
+export async function lookupSbn(isbn) {
+  if (isDemo) return null;
+  const { data, error } = await supabase.functions.invoke('sbn', { body: { isbn }, timeout: 8000 });
+  return error ? null : data?.book ?? null;
+}
+
 // ---- Prestiti tra membri ----
 
 // Richieste ricevute e fatte, libri prestati e ricevuti tramite l'app.

@@ -401,10 +401,13 @@ function findBook(id) {
   return state.books.find((b) => b.id === id);
 }
 
-// Due libri sono "lo stesso" se hanno lo stesso ISBN, oppure stesso titolo e primo autore
-// (così edizioni diverse dello stesso libro vengono riconosciute).
+// Due libri sono "lo stesso" se hanno lo stesso ISBN, oppure stesso titolo e cognome del
+// primo autore. Così si riconoscono edizioni e fonti diverse dello stesso libro, anche quando
+// scrivono l'autore in modo diverso ("J. R. R. Tolkien" e "J.R.R. Tolkien").
 function titleKey(book) {
-  return simplify(`${book.title ?? ''}|${(book.authors ?? '').split(',')[0].trim()}`);
+  const firstAuthor = (book.authors ?? '').split(',')[0].trim();
+  const surname = firstAuthor.split(/\s+/).at(-1);
+  return simplify(`${book.title ?? ''}|${surname}`);
 }
 
 function sameBook(a, b) {

@@ -1,7 +1,14 @@
-// Ricerca dei dati di un libro su Google Books e Open Library.
+// Ricerca dei dati di un libro: OPAC SBN (catalogo delle biblioteche italiane),
+// Google Books e Open Library.
 import { GOOGLE_BOOKS_API_KEY } from './config.js';
+import { lookupSbn } from './db.js';
+import { simplify } from './ui.js';
 
 const TIMEOUT_MS = 8000;
+
+// Da ottobre 2026 Google Books ha un guasto: le ricerche per ISBN tornano vuote e spesso
+// risponde 503 ("backendFailed"). Per gli ISBN si fanno 2 tentativi, per i titoli uno solo.
+const GOOGLE_ISBN_ATTEMPTS = 2;
 
 // ---- ISBN ----
 
@@ -31,22 +38,51 @@ function isValidIsbn10(s) {
 
 // ---- Ricerca per ISBN ----
 
-// Interroga entrambe le fonti in parallelo e unisce i risultati.
-// Restituisce null se nessuna delle due conosce il libro.
+// Chiede a tutte le fonti insieme (così si aspetta solo la più lenta) e sceglie in
+// ordine di priorità: 1. OPAC SBN, 2. Google Books, 3. Open Library.
+// Restituisce null se nessuna fonte conosce il libro.
 export async function lookupIsbn(isbn) {
-  const [google, openLibrary] = await Promise.allSettled([
-    searchGoogle(`isbn:${isbn}`).then((items) => items[0] ?? null),
+  const [sbn, google, openLibrary] = (await Promise.allSettled([
+    lookupSbn(isbn),
+    searchGoogle(`isbn:${isbn}`, GOOGLE_ISBN_ATTEMPTS).then((items) => items[0] ?? null),
     lookupOpenLibrary(isbn),
-  ]);
-  const g = google.status === 'fulfilled' ? google.value : null;
-  const o = openLibrary.status === 'fulfilled' ? openLibrary.value : null;
-  if (!g && !o) return null;
+  ])).map((result) => (result.status === 'fulfilled' ? result.value : null));
 
-  // Google ha di solito nomi degli autori e generi migliori,
-  // Open Library copertine più grandi.
-  const book = { ...o, ...stripEmpty(g), isbn };
-  if (o?.cover_url) book.cover_url = o.cover_url;
+  // Senza SBN, se Google e Open Library non concordano sul titolo si dà ragione a Open Library:
+  // nelle prove il catalogo di Google collegava 2 ISBN su 5 al libro sbagliato.
+  const disagree = !sbn && google && openLibrary && !sameTitle(google.title, openLibrary.title);
+  const book = mergeBooks(disagree ? [openLibrary, google] : [sbn, google, openLibrary]);
+  if (!book) return null;
+  // Copertina: Open Library ha immagini più grandi, SBN non ne ha.
+  const withCover = [openLibrary, google].find((b) => b?.cover_url && sameTitle(b.title, book.title));
+  book.cover_url = withCover?.cover_url ?? null;
+  book.isbn = isbn;
   return book;
+}
+
+// La prima fonte che conosce il libro (con un titolo) vince; le altre completano solo i campi
+// mancanti, e solo se il titolo coincide: il catalogo di Google collega alcuni ISBN a libri sbagliati.
+function mergeBooks(sources) {
+  const [main, ...others] = sources.filter((source) => source?.title);
+  if (!main) return null;
+  const book = { ...main };
+  for (const other of others) {
+    if (!sameTitle(other.title, main.title)) continue;
+    for (const [key, value] of Object.entries(other)) {
+      if (book[key] == null && value != null && value !== '') book[key] = value;
+    }
+  }
+  return book;
+}
+
+// Titoli uguali a meno di maiuscole, accenti, punteggiatura e sottotitolo finale
+// ("Il signore degli anelli" = "Il signore degli anelli. Trilogia"). Un titolo di una sola
+// parola deve coincidere del tutto, per non confondere "Dune" con "Dune messiah".
+function sameTitle(a, b) {
+  const words = (title) => simplify(title ?? '').split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+  const [short, long] = [words(a), words(b)].sort((x, y) => x.length - y.length);
+  if (!short.length || (short.length === 1 && long.length > 1)) return false;
+  return short.every((word, i) => word === long[i]);
 }
 
 // ---- Ricerca per titolo / autore ----
@@ -63,10 +99,21 @@ export async function searchBooks(query) {
 
 // ---- Google Books ----
 
-async function searchGoogle(q) {
+async function searchGoogle(q, attempts = 1) {
   const params = new URLSearchParams({ q, maxResults: '12', printType: 'books' });
   if (GOOGLE_BOOKS_API_KEY) params.set('key', GOOGLE_BOOKS_API_KEY);
-  const data = await getJson(`https://www.googleapis.com/books/v1/volumes?${params}`);
+  const url = `https://www.googleapis.com/books/v1/volumes?${params}`;
+  // Un solo limite di tempo per tutti i tentativi, così la ricerca non aspetta più di TIMEOUT_MS.
+  const signal = AbortSignal.timeout?.(TIMEOUT_MS);
+  let data;
+  for (let attempt = 1; ; attempt++) {
+    try {
+      data = await getJson(url, signal);
+      break;
+    } catch (error) {
+      if (error.status !== 503 || attempt >= attempts) throw error;
+    }
+  }
   return (data.items ?? []).map(({ volumeInfo: v }) => ({
     isbn: pickGoogleIsbn(v.industryIdentifiers),
     title: v.title,
@@ -135,19 +182,14 @@ async function searchOpenLibrary(q) {
 
 // ---- Utilità ----
 
-async function getJson(url) {
-  // AbortSignal.timeout manca su iPhone con iOS precedenti al 16.
-  const res = await fetch(url, { signal: AbortSignal.timeout?.(TIMEOUT_MS) });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+// AbortSignal.timeout manca su iPhone con iOS precedenti al 16: lì si aspetta senza limite.
+async function getJson(url, signal = AbortSignal.timeout?.(TIMEOUT_MS)) {
+  const res = await fetch(url, { signal });
+  if (!res.ok) throw Object.assign(new Error(`HTTP ${res.status}`), { status: res.status });
   return res.json();
 }
 
 function parseYear(value) {
   const match = String(value ?? '').match(/\d{4}/);
   return match ? Number(match[0]) : null;
-}
-
-function stripEmpty(obj) {
-  if (!obj) return {};
-  return Object.fromEntries(Object.entries(obj).filter(([, v]) => v != null && v !== ''));
 }

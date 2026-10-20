@@ -89,11 +89,28 @@ Su `localhost` l'uso senza connessione è spento, per vedere subito le modifiche
 
 ## Ricerca dei libri
 
-Per ogni ISBN l'app interroga insieme Google Books e Open Library e unisce i risultati.
-Senza chiave Google Books a volte risponde "quota esaurita": in quel caso restano i dati di Open Library,
-che per i libri italiani possono essere incompleti. Per risultati migliori puoi creare una chiave gratuita
-([Google Cloud Console](https://console.cloud.google.com) → API e servizi → abilita *Books API* → Credenziali → Crea chiave API,
-limitandola al tuo sito) e inserirla in `GOOGLE_BOOKS_API_KEY` dentro `js/config.js`.
+Per ogni ISBN l'app chiede i dati a tre fonti insieme e sceglie in quest'ordine:
+
+1. **OPAC SBN**, il catalogo delle biblioteche italiane: il più preciso per i libri italiani.
+   Il browser non può leggerlo direttamente, quindi passa da una piccola funzione su Supabase
+   (`supabase/functions/sbn/index.ts`) che risponde solo a chi ha fatto l'accesso.
+2. **Google Books**: da ottobre 2026 ha un guasto (le ricerche per ISBN tornano vuote), ma resta in lista
+   per quando tornerà a funzionare. La chiave facoltativa va in `GOOGLE_BOOKS_API_KEY` dentro `js/config.js`.
+3. **Open Library**: riserva finale e fonte delle copertine.
+
+Le fonti successive completano solo i campi mancanti, e solo se il titolo coincide.
+La ricerca per titolo usa Google Books e Open Library. In modalità demo SBN non viene usato.
+
+### Pubblicare la funzione `sbn` (una volta, e dopo ogni modifica al file)
+
+1. Nella dashboard di Supabase apri **Edge Functions** → **Deploy a new function** → **Via Editor**.
+2. Chiama la funzione esattamente `sbn`, cancella il codice d'esempio e incolla tutto il contenuto
+   di [`supabase/functions/sbn/index.ts`](supabase/functions/sbn/index.ts).
+3. Premi **Deploy function** e aspetta qualche secondo.
+4. Nelle impostazioni della funzione controlla che la verifica del JWT (*Verify JWT*) sia **attiva**.
+
+Per aggiornarla: apri la funzione, incolla il nuovo codice e premi **Deploy updates**.
+Se la funzione non è pubblicata o non risponde, la ricerca continua con Google Books e Open Library.
 
 ## Club del libro
 
@@ -154,6 +171,7 @@ Ogni tanto premi **Esporta** per scaricare il CSV della tua libreria (ognuno pu�
 | `supabase/01-schema.sql` | Tabella dei libri e regole di sicurezza |
 | `supabase/02-club.sql` | Profili, condivisione dei libri e funzione che elenca i libri del club |
 | `supabase/03-prestiti.sql` | Prestiti, "Consigliato da", novità del club, obiettivo di lettura |
+| `supabase/functions/sbn/index.ts` | Funzione Supabase che cerca un ISBN nel catalogo OPAC SBN |
 | `sw.js` | Service worker: permette di aprire l'app senza connessione |
 | `manifest.webmanifest`, `icons/` | Nome e icona quando l'app è aggiunta alla schermata Home |
 
