@@ -29,6 +29,17 @@ const FILTERS = {
   shared: (b) => b.shared,
 };
 
+// Generi suggeriti nella scheda, insieme a quelli che hai già usato. Sono gli stessi nomi
+// che la ricerca per ISBN usa quando traduce il genere delle fonti (GENRE_RULES in lookup.js).
+const GENRES = [
+  'Narrativa', 'Giallo/Thriller', 'Fantasy', 'Fantascienza', 'Classici', 'Saggistica',
+  'Storia', 'Biografia', 'Ragazzi', 'Fumetti', 'Poesia',
+];
+
+// Valore dei menu "Genere" per i libri senza genere. Le altre voci sono testo semplificato,
+// sempre in minuscolo, quindi non possono coincidere con questa.
+const NONE = 'NONE';
+
 // Filtri del club: lavorano su gruppi (stesso libro condiviso da più membri).
 const CLUB_FILTERS = {
   all: () => true,
@@ -46,6 +57,7 @@ const state = {
   filter: 'all',
   query: '',
   sort: 'recent',
+  genre: '',         // genere scelto nel menu: '' = tutti, NONE = senza genere
   editingId: null,   // id del libro aperto nella scheda, null se nuovo
   editingBook: null, // dati con cui è stata aperta la scheda
   view: 'library',   // 'library', 'club' oppure 'loans'
@@ -54,7 +66,7 @@ const state = {
   loansError: null,
   goal: null,
   readThisYear: 0,
-  club: { books: [], error: null, filter: 'all', member: '', query: '', lastSeen: null, seenNow: null, openKey: null },
+  club: { books: [], error: null, filter: 'all', member: '', query: '', lastSeen: null, seenNow: null, openKey: null, genre: '' },
 };
 
 let scanController;
@@ -187,6 +199,10 @@ function bindEvents() {
     for (const b of $('#filters').children) b.setAttribute('aria-pressed', b === button);
     render();
   });
+  $('#genre-filter').addEventListener('change', (e) => {
+    state.genre = e.target.value;
+    render();
+  });
   $('#sort').addEventListener('change', (e) => {
     state.sort = e.target.value;
     render();
@@ -206,6 +222,10 @@ function bindEvents() {
     if (!button) return;
     state.club.filter = button.dataset.filter;
     for (const b of $('#club-filters').children) b.setAttribute('aria-pressed', b === button);
+    renderClub();
+  });
+  $('#club-genre').addEventListener('change', (e) => {
+    state.club.genre = e.target.value;
     renderClub();
   });
   $('#club-member').addEventListener('change', (e) => {
@@ -312,6 +332,8 @@ function setBadge(selector, count, label) {
 // ---------- Libreria ----------
 
 function render() {
+  state.genre = fillValueMenu($('#genre-filter'), state.books.map((b) => b.genre),
+    'tutti i generi', 'senza genere', state.genre);
   const books = visibleBooks();
   $('#book-list').replaceChildren(...books.map(bookItem));
 
@@ -341,7 +363,8 @@ function render() {
 
 function visibleBooks() {
   const query = simplify(state.query.trim());
-  const books = state.books.filter((b) => FILTERS[state.filter](b) && (!query || matches(b, query)));
+  const books = state.books.filter((b) => FILTERS[state.filter](b) && valueMatches(b.genre, state.genre)
+    && (!query || matches(b, query)));
   return books.sort(SORTERS[state.sort]);
 }
 
@@ -390,6 +413,50 @@ function bookItem(book) {
       ),
     ),
   );
+}
+
+// Menu di un filtro (es. il genere): "tutti", poi i valori presenti con quanti libri ha
+// ciascuno, e in fondo i libri senza valore, utili da completare. Maiuscole e accenti non
+// contano ("narrativa" e "Narrativa" sono la stessa voce). Restituisce la scelta ancora valida.
+function fillValueMenu(select, values, allLabel, noneLabel, current) {
+  const counts = new Map(); // valore semplificato → { label, count }
+  let missing = 0;
+  for (const value of values) {
+    const text = value?.trim();
+    if (!text) {
+      missing++;
+      continue;
+    }
+    const item = counts.get(simplify(text)) ?? { label: text, count: 0 };
+    item.count++;
+    counts.set(simplify(text), item);
+  }
+  const options = [...counts]
+    .sort(([, a], [, b]) => a.label.localeCompare(b.label, 'it'))
+    .map(([key, { label, count }]) => el('option', { value: key }, `${label} (${count})`));
+  if (missing) options.push(el('option', { value: NONE }, `${noneLabel} (${missing})`));
+  select.replaceChildren(el('option', { value: '' }, allLabel), ...options);
+  select.value = current;
+  if (select.value !== current) select.value = ''; // la scelta non c'è più: si torna su "tutti"
+  return select.value;
+}
+
+function valueMatches(value, choice) {
+  if (!choice) return true;
+  const text = value?.trim();
+  return choice === NONE ? !text : Boolean(text) && simplify(text) === choice;
+}
+
+// Suggerimenti di un campo della scheda: i valori dati, senza doppioni né vuoti.
+function fillSuggestions(datalist, values) {
+  const unique = new Map();
+  for (const value of values) {
+    const text = value?.trim();
+    if (text && !unique.has(simplify(text))) unique.set(simplify(text), text);
+  }
+  datalist.replaceChildren(...[...unique.values()]
+    .sort((a, b) => a.localeCompare(b, 'it'))
+    .map((text) => el('option', { value: text })));
 }
 
 function findBook(id) {
@@ -499,7 +566,11 @@ function renderClub() {
   state.club.member = select.value;
 
   const groups = groupClubBooks(books);
+  // Il genere di un libro del club è quello mostrato nella sua finestra (il primo indicato).
+  state.club.genre = fillValueMenu($('#club-genre'), groups.map((g) => firstValue(g, 'genre')),
+    'tutti i generi', 'senza genere', state.club.genre);
   const visible = groups.filter((g) => CLUB_FILTERS[filter](g, me)
+    && valueMatches(firstValue(g, 'genre'), state.club.genre)
     && (!state.club.member || g.entries.some((e) => e.owner_id === state.club.member))
     && (!query || matches(g, query) || g.entries.some((e) => simplify(e.owner_name).includes(query))));
 
@@ -989,6 +1060,7 @@ function openBookForm(book, notice = '') {
   $('#intent-field').hidden = !isNew;
   form.querySelector('details.more').open = isNew && !book.title;
 
+  fillSuggestions($('#genre-list'), [...GENRES, ...state.books.map((b) => b.genre)]);
   renderRating();
   updateFormVisibility();
   updateCoverPreview();

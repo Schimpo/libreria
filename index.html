@@ -109,6 +109,12 @@
             </select>
           </label>
         </div>
+        <div class="toolbar-row toolbar-menus">
+          <label class="sort">
+            <span class="muted">Genere</span>
+            <select id="genre-filter"></select>
+          </label>
+        </div>
       </section>
 
       <main class="content">
@@ -161,6 +167,12 @@
             <select id="club-member">
               <option value="">tutti i membri</option>
             </select>
+          </label>
+        </div>
+        <div class="toolbar-row toolbar-menus">
+          <label class="sort">
+            <span class="muted">Genere</span>
+            <select id="club-genre"></select>
           </label>
         </div>
       </section>
@@ -341,7 +353,8 @@
           </label>
           <label class="field">
             <span>Genere</span>
-            <input name="genre">
+            <input name="genre" list="genre-list" autocomplete="off">
+            <datalist id="genre-list"></datalist>
           </label>
           <label class="field">
             <span>Lingua</span>

@@ -308,7 +308,7 @@ function demoClub() {
         { rating: 4, available: false }),
       sample('demo-3', 'Anna', 'La ragazza del treno', 'Paula Hawkins', null,
         { rating: 2, club_comment: 'Si legge in fretta, ma il finale non mi ha convinta.',
-          genre: 'Thriller', publisher: 'Piemme', published_year: 2015 }),
+          genre: 'Giallo/Thriller', publisher: 'Piemme', published_year: 2015 }),
       sample('demo-4', 'Marco', 'Sapiens. Da animali a dèi', 'Yuval Noah Harari', null,
         { status: 'reading', club_updated_at: daysAgo(1) }),
     ];

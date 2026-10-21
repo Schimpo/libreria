@@ -410,6 +410,8 @@ input:focus, select:focus, textarea:focus {
 }
 .sort { display: inline-flex; align-items: center; gap: 8px; }
 .sort select { width: auto; min-height: 36px; padding: 4px 8px; font-size: 0.9rem; }
+.toolbar-menus { justify-content: flex-start; flex-wrap: wrap; gap: 8px 16px; }
+.toolbar-menus select { max-width: 60vw; }
 
 .book-list {
   display: grid;

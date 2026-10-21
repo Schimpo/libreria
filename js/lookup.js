@@ -85,6 +85,33 @@ function sameTitle(a, b) {
   return short.every((word, i) => word === long[i]);
 }
 
+// ---- Genere ----
+
+// Le fonti danno voci in inglese o spagnolo, spesso argomenti e non generi ("futurology",
+// "Auschwitz (Concentration camp)"). Si cerca fra tutte le voci la prima regola che corrisponde,
+// in quest'ordine: i generi più precisi prima di Narrativa e Saggistica. Se nessuna regola
+// corrisponde il genere resta vuoto. Può sbagliare: chi aggiunge il libro lo corregge.
+// I nomi devono restare uguali a quelli suggeriti nella scheda (GENRES in app.js).
+const GENRE_RULES = [
+  ['Fantascienza', /science.?fiction|sci.?fi|ciencia.?ficcion|fantascienza/],
+  ['Fantasy', /fantasy/],
+  ['Giallo/Thriller', /myster|detective|thriller|crime|suspense|misterio|policiac|giallo|noir/],
+  ['Ragazzi', /juvenile|children|young adult|ragazzi|infantil/],
+  ['Fumetti', /comic|graphic novel|manga|fumett/],
+  ['Poesia', /poetry|poems|poesia|poesie/],
+  ['Biografia', /biograph|personal narratives|memoir|biografi/],
+  ['Storia', /^(history|storia|historia)\b(?!.*critic)/],
+  ['Classici', /classic/],
+  ['Saggistica', /saggistica|essays|saggi|philosoph|filosofi|psycholog|economics|political science/],
+  ['Narrativa', /fiction|novel|novela|\broman|narrativa|racconti/],
+];
+
+function toGenre(labels = []) {
+  // "Nonfiction" contiene "fiction": prima lo si traduce, così non diventa Narrativa.
+  const texts = labels.map((label) => simplify(label ?? '').replace(/non.?fiction/g, 'saggistica'));
+  return GENRE_RULES.find(([, rule]) => texts.some((text) => rule.test(text)))?.[0] ?? null;
+}
+
 // ---- Ricerca per titolo / autore ----
 
 export async function searchBooks(query) {
@@ -121,7 +148,7 @@ async function searchGoogle(q, attempts = 1) {
     publisher: v.publisher ?? null,
     published_year: parseYear(v.publishedDate),
     pages: v.pageCount || null,
-    genre: v.categories?.[0] ?? null,
+    genre: toGenre(v.categories),
     language: v.language ?? null,
     cover_url: googleCover(v.imageLinks),
   }));
@@ -152,7 +179,7 @@ async function lookupOpenLibrary(isbn) {
     publisher: d.publishers?.[0]?.name ?? null,
     published_year: parseYear(d.publish_date),
     pages: d.number_of_pages ?? null,
-    genre: d.subjects?.[0]?.name ?? null,
+    genre: toGenre(d.subjects?.map((s) => s.name)),
     language: null,
     cover_url: d.cover?.medium ?? d.cover?.large ?? null,
   };
@@ -162,7 +189,7 @@ async function searchOpenLibrary(q) {
   const params = new URLSearchParams({
     q,
     limit: '12',
-    fields: 'title,author_name,cover_i,first_publish_year,number_of_pages_median,publisher',
+    fields: 'title,author_name,cover_i,first_publish_year,number_of_pages_median,publisher,subject',
   });
   const data = await getJson(`https://openlibrary.org/search.json?${params}`);
   // I risultati di Open Library sono "opere" con molte edizioni: l'ISBN
@@ -174,7 +201,7 @@ async function searchOpenLibrary(q) {
     publisher: d.publisher?.[0] ?? null,
     published_year: d.first_publish_year ?? null,
     pages: d.number_of_pages_median ?? null,
-    genre: null,
+    genre: toGenre(d.subject),
     language: null,
     cover_url: d.cover_i ? `https://covers.openlibrary.org/b/id/${d.cover_i}-M.jpg` : null,
   }));
