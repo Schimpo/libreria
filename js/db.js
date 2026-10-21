@@ -302,11 +302,13 @@ function demoClub() {
     });
     club = [
       sample('demo-1', 'Marco', 'Il barone rampante', 'Italo Calvino', null,
-        { rating: 5, club_comment: 'Uno dei miei preferiti: leggero e profondo.', club_updated_at: daysAgo(2) }),
+        { rating: 5, club_comment: 'Uno dei miei preferiti: leggero e profondo.', club_updated_at: daysAgo(2),
+          genre: 'Narrativa', publisher: 'Einaudi', published_year: 1957 }),
       sample('demo-2', 'Anna', 'Il barone rampante', 'Italo Calvino', null,
         { rating: 4, available: false }),
       sample('demo-3', 'Anna', 'La ragazza del treno', 'Paula Hawkins', null,
-        { rating: 2, club_comment: 'Si legge in fretta, ma il finale non mi ha convinta.' }),
+        { rating: 2, club_comment: 'Si legge in fretta, ma il finale non mi ha convinta.',
+          genre: 'Thriller', publisher: 'Piemme', published_year: 2015 }),
       sample('demo-4', 'Marco', 'Sapiens. Da animali a dèi', 'Yuval Noah Harari', null,
         { status: 'reading', club_updated_at: daysAgo(1) }),
     ];

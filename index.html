@@ -365,6 +365,19 @@
     </form>
   </dialog>
 
+  <!-- Libro del club: dati del libro e cosa ne pensano i membri, in sola lettura -->
+  <dialog id="club-book-dialog" class="sheet" aria-labelledby="club-book-title">
+    <div class="sheet-body">
+      <header class="sheet-header">
+        <h2 id="club-book-title"></h2>
+        <button class="icon-btn" type="button" data-close aria-label="Chiudi">
+          <svg class="icon"><use href="#i-close"/></svg>
+        </button>
+      </header>
+      <div id="club-book-body"></div>
+    </div>
+  </dialog>
+
   <!-- Scansione -->
   <dialog id="scan-dialog" class="scan" aria-label="Scansione codice a barre">
     <video id="scan-video" playsinline muted></video>

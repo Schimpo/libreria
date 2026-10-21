@@ -54,7 +54,7 @@ const state = {
   loansError: null,
   goal: null,
   readThisYear: 0,
-  club: { books: [], error: null, filter: 'all', member: '', query: '', lastSeen: null, seenNow: null },
+  club: { books: [], error: null, filter: 'all', member: '', query: '', lastSeen: null, seenNow: null, openKey: null },
 };
 
 let scanController;
@@ -212,14 +212,9 @@ function bindEvents() {
     state.club.member = e.target.value;
     renderClub();
   });
-  $('#club-list').addEventListener('click', (e) => {
-    const target = e.target.closest('[data-id], [data-want], [data-request], [data-cancel]');
-    if (!target) return;
-    if (target.dataset.id) openBookForm(findBook(target.dataset.id));
-    if (target.dataset.want) addToWishlist(target.dataset.want, target);
-    if (target.dataset.request) askToBorrow(target.dataset.request, target);
-    if (target.dataset.cancel) cancelRequest(target.dataset.cancel, target);
-  });
+  // Gli stessi pulsanti ci sono nell'elenco del club e nella finestra di un libro del club.
+  $('#club-list').addEventListener('click', handleClubClick);
+  $('#club-book-body').addEventListener('click', handleClubClick);
 
   // Prestiti
   $('#loans-sections').addEventListener('click', (e) => {
@@ -525,6 +520,19 @@ function renderClub() {
     $('#club-empty-text').textContent = 'Apri un libro della tua libreria e attiva “Condividi con il club”: '
       + 'lo vedranno tutti i membri, insieme al tuo voto e al tuo commento.';
   }
+
+  // Se è aperta la finestra di un libro, si aggiorna anche lei (es. dopo una richiesta di prestito).
+  if ($('#club-book-dialog').open) renderClubBook();
+}
+
+function handleClubClick(e) {
+  const target = e.target.closest('[data-open], [data-id], [data-want], [data-request], [data-cancel]');
+  if (!target) return;
+  if (target.dataset.open) openClubBook(target.dataset.open);
+  if (target.dataset.id) openBookForm(findBook(target.dataset.id));
+  if (target.dataset.want) addToWishlist(target.dataset.want, target);
+  if (target.dataset.request) askToBorrow(target.dataset.request, target);
+  if (target.dataset.cancel) cancelRequest(target.dataset.cancel, target);
 }
 
 // Riunisce in una sola scheda lo stesso libro condiviso da più membri.
@@ -542,38 +550,101 @@ function groupClubBooks(books) {
   return [...groups.values()];
 }
 
-function clubItem(group) {
+// Primo valore presente fra le copie condivise dello stesso libro (es. il genere).
+function firstValue(group, field) {
+  return group.entries.find((e) => e[field] != null && e[field] !== '')?.[field] ?? null;
+}
+
+function clubAverage(group) {
   const ratings = group.entries.map((e) => e.rating).filter(Boolean);
-  const average = ratings.length ? ratings.reduce((a, b) => a + b, 0) / ratings.length : 0;
-  const isNew = group.entries.some(isNewEntry);
+  if (!ratings.length) return null;
+  const average = ratings.reduce((a, b) => a + b, 0) / ratings.length;
+  return el('span', { class: 'club-avg' },
+    el('span', { class: 'stars', 'aria-hidden': 'true' }, '★'),
+    `${decimalFormat.format(average)} su 5 · ${plural(ratings.length, 'voto', 'voti')}`);
+}
+
+// "Voglio leggerlo" se il libro non è nella tua libreria, altrimenti dove si trova.
+function libraryAction(group) {
   const mine = findInLibrary(group);
-
-  let action;
   if (!mine) {
-    action = el('button', { class: 'btn btn-secondary btn-small', type: 'button', 'data-want': group.key }, 'Voglio leggerlo');
-  } else if (isWish(mine)) {
-    action = el('span', { class: 'badge badge-wish' }, 'Nella tua lista');
-  } else {
-    action = el('span', { class: 'badge badge-owned' }, 'Nella tua libreria');
+    return el('button', { class: 'btn btn-secondary btn-small', type: 'button', 'data-want': group.key }, 'Voglio leggerlo');
   }
+  return isWish(mine)
+    ? el('span', { class: 'badge badge-wish' }, 'Nella tua lista')
+    : el('span', { class: 'badge badge-owned' }, 'Nella tua libreria');
+}
 
+function clubItem(group) {
+  const isNew = group.entries.some(isNewEntry);
   return el('li', { class: `club-card${isNew ? ' is-new' : ''}` },
     el('div', { class: 'club-head' },
       coverElement(group),
       el('div', { class: 'book-info' },
-        el('span', { class: 'book-title' }, group.title),
+        // Il titolo è un pulsante che, con il CSS, copre tutta la parte alta della scheda:
+        // toccando copertina o titolo si apre la finestra con i dati del libro.
+        el('button', { class: 'club-open', type: 'button', 'data-open': group.key, 'aria-haspopup': 'dialog' },
+          el('span', { class: 'book-title' }, group.title)),
         group.authors && el('span', { class: 'book-authors' }, group.authors),
-        ratings.length > 0 && el('span', { class: 'club-avg' },
-          el('span', { class: 'stars', 'aria-hidden': 'true' }, '★'),
-          `${decimalFormat.format(average)} su 5 · ${plural(ratings.length, 'voto', 'voti')}`),
+        clubAverage(group),
         el('span', { class: 'club-actions' },
           isNew && el('span', { class: 'badge badge-new' }, 'Novità'),
-          action,
+          libraryAction(group),
         ),
       ),
     ),
     el('ul', { class: 'club-entries' }, ...group.entries.map(clubEntry)),
   );
+}
+
+// Finestra di un libro del club: copertina, genere e dati dell'edizione, poi i membri che
+// l'hanno condiviso con voto, commento e disponibilità. Si vede solo ciò che passa club_books().
+function openClubBook(key) {
+  state.club.openKey = key;
+  const dialog = $('#club-book-dialog');
+  openDialog(dialog);
+  renderClubBook();
+  dialog.querySelector('.sheet-body').scrollTop = 0;
+}
+
+function renderClubBook() {
+  const dialog = $('#club-book-dialog');
+  const group = groupClubBooks(state.club.books).find((g) => g.key === state.club.openKey);
+  if (!group) {
+    dialog.close(); // il libro non è più condiviso
+    return;
+  }
+
+  // I dati dell'edizione vengono tutti dalla stessa copia (quella con l'ISBN, se c'è),
+  // per non mescolare edizioni diverse condivise da membri diversi.
+  const edition = group.entries.find((e) => e.isbn) ?? group.entries[0];
+  const genre = firstValue(group, 'genre');
+  // Il genere compare sempre, anche se manca, perché è la prima cosa che si cerca.
+  const facts = [
+    ['Genere', genre ?? el('span', { class: 'muted' }, 'non indicato')],
+    ['Editore', edition.publisher],
+    ['Anno', edition.published_year],
+    ['Pagine', edition.pages && numberFormat.format(edition.pages)],
+    ['ISBN', edition.isbn],
+  ].filter(([, value]) => value);
+
+  // Ridisegnando, il pulsante appena premuto sparisce: il fuoco torna sulla finestra.
+  const hadFocus = dialog.contains(document.activeElement);
+  $('#club-book-title').textContent = group.title;
+  $('#club-book-body').replaceChildren(
+    el('div', { class: 'book-head' },
+      coverElement(group, 'cover-lg'),
+      el('div', { class: 'book-info' },
+        group.authors && el('span', { class: 'club-book-authors' }, group.authors),
+        clubAverage(group),
+        el('span', { class: 'club-actions' }, libraryAction(group)),
+      ),
+    ),
+    el('dl', { class: 'facts' },
+      ...facts.flatMap(([label, value]) => [el('dt', {}, label), el('dd', {}, value)])),
+    el('ul', { class: 'club-entries' }, ...group.entries.map(clubEntry)),
+  );
+  if (hadFocus && !dialog.contains(document.activeElement)) dialog.focus({ preventScroll: true });
 }
 
 function clubEntry(entry) {
@@ -614,19 +685,18 @@ async function addToWishlist(key, button) {
   const others = group.entries.filter((e) => e.owner_id !== state.user?.id);
   const fans = others.filter((e) => e.rating >= 4);
   const names = [...new Set((fans.length ? fans : others).map((e) => e.owner_name))];
-  const pick = (field) => group.entries.find((e) => e[field] != null)?.[field] ?? null;
 
   button.disabled = true;
   try {
     const created = await db.createBook({
       title: group.title,
       authors: group.authors ?? null,
-      isbn: pick('isbn'),
-      publisher: pick('publisher'),
-      published_year: pick('published_year'),
-      pages: pick('pages'),
-      genre: pick('genre'),
-      cover_url: pick('cover_url'),
+      isbn: firstValue(group, 'isbn'),
+      publisher: firstValue(group, 'publisher'),
+      published_year: firstValue(group, 'published_year'),
+      pages: firstValue(group, 'pages'),
+      genre: firstValue(group, 'genre'),
+      cover_url: firstValue(group, 'cover_url'),
       owned: false,
       status: 'to_read',
       recommended_by: names.length ? joinNames(names) : null,
@@ -925,6 +995,7 @@ function openBookForm(book, notice = '') {
   updateWhoHas();
 
   $('#add-dialog').close();
+  $('#club-book-dialog').close();
   const dialog = $('#book-dialog');
   openDialog(dialog);
   form.scrollTop = 0;

@@ -20,8 +20,10 @@ codici a barre, il PC per inserire e consultare.
 - **Semplice e leggibile**: niente framework, niente build. Chi la mantiene vuole poter modificare il
   codice da solo: modifiche piccole e commenti in italiano.
 - **La sicurezza sta nelle regole RLS di Supabase** (`supabase/*.sql`): ogni utente vede solo i
-  propri libri. Il club vede solo titolo, stato di lettura, voto, commento e disponibilità al
-  prestito; note private, date di lettura e nome di chi ha il libro restano del proprietario.
+  propri libri. Il club vede solo i dati del libro (titolo, autori, genere, editore, anno, pagine,
+  ISBN, copertina), stato di lettura, voto, commento e disponibilità al prestito: l'elenco dei
+  campi è in `club_books()`. Note private, date di lettura e nome di chi ha il libro restano del
+  proprietario.
   Una tabella o un campo nuovo arriva sempre con la sua regola.
 - In `js/config.js` va solo la chiave **publishable** (o anon) di Supabase, pensata per stare nel
   codice pubblico. **Mai la chiave `secret` / `service_role`.**
