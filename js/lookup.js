@@ -95,15 +95,15 @@ function sameTitle(a, b) {
 const GENRE_RULES = [
   ['Fantascienza', /science.?fiction|sci.?fi|ciencia.?ficcion|fantascienza/],
   ['Fantasy', /fantasy/],
-  ['Giallo/Thriller', /myster|detective|thriller|crime|suspense|misterio|policiac|giallo|noir/],
+  ['Giallo/Thriller', /myster|detective|thriller|crime fiction|suspense|misterio|policiac|giallo|noir/],
   ['Ragazzi', /juvenile|children|young adult|ragazzi|infantil/],
-  ['Fumetti', /comic|graphic novel|manga|fumett/],
+  ['Fumetti', /comics|comic (book|strip)|graphic novel|manga|fumett/],
   ['Poesia', /poetry|poems|poesia|poesie/],
   ['Biografia', /biograph|personal narratives|memoir|biografi/],
   ['Storia', /^(history|storia|historia)\b(?!.*critic)/],
   ['Classici', /classic/],
   ['Saggistica', /saggistica|essays|saggi|philosoph|filosofi|psycholog|economics|political science/],
-  ['Narrativa', /fiction|novel|novela|\broman|narrativa|racconti/],
+  ['Narrativa', /fiction|novel|novela|\broman(s|zo|zi|ce)?\b|narrativa|racconti/],
 ];
 
 function toGenre(labels = []) {

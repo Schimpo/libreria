@@ -438,6 +438,8 @@ function bookItem(book) {
 // ciascuno, e in fondo i libri senza valore, utili da completare. Maiuscole e accenti non
 // contano ("narrativa" e "Narrativa" sono la stessa voce). Restituisce la scelta ancora valida.
 function fillValueMenu(select, values, allLabel, noneLabel, current) {
+  // Mentre il menu è aperto non lo si ricostruisce: la tendina si chiuderebbe.
+  if (document.activeElement === select) return select.value;
   const counts = new Map(); // valore semplificato → { label, count }
   let missing = 0;
   for (const value of values) {
@@ -660,20 +662,19 @@ function renderClub() {
   state.club.member = select.value;
 
   const groups = groupClubBooks(books);
-  // Il genere di un libro del club è quello mostrato nella sua finestra (il primo indicato).
-  state.club.genre = fillValueMenu($('#club-genre'), groups.map((g) => firstValue(g, 'genre')),
+  state.club.genre = fillValueMenu($('#club-genre'), groups.map((g) => g.genre),
     'tutti i generi', 'senza genere', state.club.genre);
   const visible = groups.filter((g) => CLUB_FILTERS[filter](g, me)
-    && valueMatches(firstValue(g, 'genre'), state.club.genre)
+    && valueMatches(g.genre, state.club.genre)
     && (!state.club.member || g.entries.some((e) => e.owner_id === state.club.member))
     && (!query || matches(g, query) || g.entries.some((e) => simplify(e.owner_name).includes(query))));
 
   const compact = state.club.layout === 'list';
   const list = $('#club-list');
   list.classList.toggle('compact', compact);
-  list.style.setProperty('--cols', 3);
+  list.style.setProperty('--cols', CLUB_COLUMNS.length);
   list.replaceChildren(...(!compact ? visible.map(clubItem)
-    : visible.length ? [listHead(['Autore', 'Genere', 'Voto'], ''), ...visible.map(clubRow)] : []));
+    : visible.length ? [listHead(CLUB_COLUMNS, ''), ...visible.map(clubRow)] : []));
   $('#club-count').textContent = error ? '' : visible.length === groups.length
     ? plural(groups.length, 'libro', 'libri')
     : `${visible.length} di ${plural(groups.length, 'libro', 'libri')}`;
@@ -715,6 +716,7 @@ function groupClubBooks(books) {
     const group = groups.get(key);
     group.cover_url ??= book.cover_url;
     group.isbn ??= book.isbn;
+    group.genre ||= book.genre; // il primo genere indicato da chi l'ha condiviso
     group.entries.push(book);
   }
   return [...groups.values()];
@@ -725,13 +727,19 @@ function firstValue(group, field) {
   return group.entries.find((e) => e[field] != null && e[field] !== '')?.[field] ?? null;
 }
 
-function clubAverage(group) {
+// Media dei voti dei membri: { average, count }, oppure null se nessuno l'ha votato.
+function averageRating(group) {
   const ratings = group.entries.map((e) => e.rating).filter(Boolean);
   if (!ratings.length) return null;
-  const average = ratings.reduce((a, b) => a + b, 0) / ratings.length;
+  return { average: ratings.reduce((a, b) => a + b, 0) / ratings.length, count: ratings.length };
+}
+
+function clubAverage(group) {
+  const rating = averageRating(group);
+  if (!rating) return null;
   return el('span', { class: 'club-avg' },
     el('span', { class: 'stars', 'aria-hidden': 'true' }, '★'),
-    `${decimalFormat.format(average)} su 5 · ${plural(ratings.length, 'voto', 'voti')}`);
+    `${decimalFormat.format(rating.average)} su 5 · ${plural(rating.count, 'voto', 'voti')}`);
 }
 
 // "Voglio leggerlo" se il libro non è nella tua libreria, altrimenti dove si trova.
@@ -767,13 +775,14 @@ function clubItem(group) {
   );
 }
 
+// Colonne della riga del club, dopo il titolo: devono corrispondere ai valori di clubRow.
+const CLUB_COLUMNS = ['Autore', 'Genere', 'Voto'];
+
 // Riga della vista "Elenco" del club: toccandola si apre la finestra del libro, con i commenti.
 function clubRow(group) {
-  const ratings = group.entries.map((e) => e.rating).filter(Boolean);
-  const average = ratings.length
-    ? `★ ${decimalFormat.format(ratings.reduce((a, b) => a + b, 0) / ratings.length)}` : null;
+  const rating = averageRating(group);
   return listRow({ 'data-open': group.key, 'aria-haspopup': 'dialog' }, group.title,
-    [group.authors, firstValue(group, 'genre'), average],
+    [group.authors, group.genre, rating && `★ ${decimalFormat.format(rating.average)}`],
     group.entries.some(isNewEntry) && el('span', { class: 'badge badge-new' }, 'Novità'),
     group.entries.some((e) => e.lent_to_me) && el('span', { class: 'badge badge-available' }, "Ce l'hai tu"),
     CLUB_FILTERS.available(group, state.user?.id) && el('span', { class: 'badge badge-available' }, 'Disponibile'));
@@ -800,7 +809,7 @@ function renderClubBook() {
   // I dati dell'edizione vengono tutti dalla stessa copia (quella con l'ISBN, se c'è),
   // per non mescolare edizioni diverse condivise da membri diversi.
   const edition = group.entries.find((e) => e.isbn) ?? group.entries[0];
-  const genre = firstValue(group, 'genre');
+  const genre = group.genre;
   // Il genere compare sempre, anche se manca, perché è la prima cosa che si cerca.
   const facts = [
     ['Genere', genre ?? el('span', { class: 'muted' }, 'non indicato')],
