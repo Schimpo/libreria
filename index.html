@@ -83,7 +83,7 @@
       <section class="toolbar">
         <label class="search">
           <svg class="icon"><use href="#i-search"/></svg>
-          <input id="search" type="search" placeholder="Cerca titolo, autore, ISBN…" aria-label="Cerca">
+          <input id="search" type="search" placeholder="Cerca titolo, autore, ISBN, posizione…" aria-label="Cerca">
         </label>
         <div id="filters" class="chips" role="group" aria-label="Filtra">
           <button type="button" data-filter="all" aria-pressed="true">Tutti</button>
@@ -113,6 +113,10 @@
           <label class="sort">
             <span class="muted">Genere</span>
             <select id="genre-filter"></select>
+          </label>
+          <label class="sort" id="location-menu">
+            <span class="muted">Dove</span>
+            <select id="location-filter"></select>
           </label>
           <div id="library-layout" class="layout-toggle" role="group" aria-label="Vista">
             <button type="button" data-layout="covers" aria-pressed="true">Copertine</button>
@@ -315,6 +319,12 @@
         </div>
         <p id="lent-hint" class="hint"></p>
       </div>
+      <label class="field" id="location-field">
+        <span>Dove si trova</span>
+        <input name="location" list="location-list" autocomplete="off" maxlength="100"
+               placeholder="es. Studio · Scaffale 2 (lo vedi solo tu)">
+        <datalist id="location-list"></datalist>
+      </label>
 
       <label class="field">
         <span>Note private</span>

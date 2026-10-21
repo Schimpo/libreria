@@ -58,6 +58,7 @@ const state = {
   query: '',
   sort: 'recent',
   genre: '',         // genere scelto nel menu: '' = tutti, NONE = senza genere
+  location: '',      // posizione scelta nel menu "Dove", come il genere
   layout: readSetting('libreria-vista', 'covers'), // 'covers' oppure 'list' (vista "Elenco")
   editingId: null,   // id del libro aperto nella scheda, null se nuovo
   editingBook: null, // dati con cui è stata aperta la scheda
@@ -205,6 +206,10 @@ function bindEvents() {
     state.genre = e.target.value;
     render();
   });
+  $('#location-filter').addEventListener('change', (e) => {
+    state.location = e.target.value;
+    render();
+  });
   bindLayoutToggle($('#library-layout'), state, 'libreria-vista', render);
   $('#sort').addEventListener('change', (e) => {
     state.sort = e.target.value;
@@ -338,6 +343,10 @@ function setBadge(selector, count, label) {
 function render() {
   state.genre = fillValueMenu($('#genre-filter'), state.books.map((b) => b.genre),
     'tutti i generi', 'senza genere', state.genre);
+  // La posizione conta solo per i libri che possiedi; il menu compare quando ne hai segnata una.
+  state.location = fillValueMenu($('#location-filter'), state.books.filter((b) => b.owned).map((b) => b.location),
+    'ovunque', 'senza posizione', state.location);
+  $('#location-menu').hidden = !state.books.some((b) => b.owned && b.location);
   const books = visibleBooks();
   const compact = state.layout === 'list';
   const list = $('#book-list');
@@ -373,12 +382,13 @@ function render() {
 function visibleBooks() {
   const query = simplify(state.query.trim());
   const books = state.books.filter((b) => FILTERS[state.filter](b) && valueMatches(b.genre, state.genre)
+    && (!state.location || (b.owned && valueMatches(b.location, state.location)))
     && (!query || matches(b, query)));
   return books.sort(SORTERS[state.sort]);
 }
 
 function matches(book, query) {
-  return [book.title, book.authors, book.isbn, book.publisher, book.genre, book.recommended_by]
+  return [book.title, book.authors, book.isbn, book.publisher, book.genre, book.recommended_by, book.location]
     .some((value) => value && simplify(value).includes(query));
 }
 
@@ -474,6 +484,7 @@ function fillSuggestions(datalist, values) {
 const LIBRARY_COLUMNS = [
   ['Autore', (b) => b.authors],
   ['Genere', (b) => b.genre],
+  ['Dove', (b) => b.location],
 ];
 
 function bookRow(book) {
@@ -533,6 +544,13 @@ function writeSetting(key, value) {
   } catch {
     // archivio non disponibile: la scelta vale fino alla chiusura della pagina
   }
+}
+
+// Posizione dell'ultimo libro aggiunto che ne ha una: si propone per i libri nuovi, così
+// scansionando uno scaffale intero non la si riscrive ogni volta.
+function lastLocation() {
+  const placed = state.books.filter((b) => b.location);
+  return placed.reduce((last, b) => (b.created_at > last.created_at ? b : last), placed[0])?.location ?? '';
 }
 
 function findBook(id) {
@@ -1154,6 +1172,8 @@ function openBookForm(book, notice = '') {
   form.querySelector('details.more').open = isNew && !book.title;
 
   fillSuggestions($('#genre-list'), [...GENRES, ...state.books.map((b) => b.genre)]);
+  fillSuggestions($('#location-list'), state.books.map((b) => b.location));
+  if (isNew && !values.location) form.elements.location.value = lastLocation();
   renderRating();
   updateFormVisibility();
   updateCoverPreview();
@@ -1216,6 +1236,7 @@ function updateFormVisibility() {
   $('#started-field').hidden = status === 'to_read';
   $('#finished-field').hidden = !['read', 'abandoned'].includes(status);
   $('#lent-field').hidden = !form.owned.checked;
+  $('#location-field').hidden = !form.owned.checked;
   $('#club-comment-field').hidden = !form.shared.checked;
 
   // "Restituito" e data del prestito, solo per un prestito già salvato.
@@ -1294,6 +1315,7 @@ function readForm() {
     cover_url: text('cover_url'),
     owned,
     lent_to: owned ? text('lent_to') : null,
+    location: owned ? text('location') : null,
     status,
     rating: int('rating'),
     started_at: status === 'to_read' ? null : text('started_at'),
@@ -1547,7 +1569,7 @@ function exportCsv() {
   const columns = [
     ['title', 'Titolo'], ['authors', 'Autori'], ['isbn', 'ISBN'], ['publisher', 'Editore'],
     ['published_year', 'Anno'], ['pages', 'Pagine'], ['genre', 'Genere'], ['language', 'Lingua'],
-    ['owned', 'Posseduto'], ['lent_to', 'Prestato a'], ['lent_at', 'Prestato dal'],
+    ['owned', 'Posseduto'], ['location', 'Dove si trova'], ['lent_to', 'Prestato a'], ['lent_at', 'Prestato dal'],
     ['status', 'Stato'], ['rating', 'Voto'],
     ['started_at', 'Iniziato il'], ['finished_at', 'Finito il'], ['notes', 'Note private'],
     ['recommended_by', 'Consigliato da'],

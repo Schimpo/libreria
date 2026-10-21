@@ -22,15 +22,18 @@ codici a barre, il PC per inserire e consultare.
 - **La sicurezza sta nelle regole RLS di Supabase** (`supabase/*.sql`): ogni utente vede solo i
   propri libri. Il club vede solo i dati del libro (titolo, autori, genere, editore, anno, pagine,
   ISBN, copertina), stato di lettura, voto, commento e disponibilità al prestito: l'elenco dei
-  campi è in `club_books()`. Note private, date di lettura e nome di chi ha il libro restano del
-  proprietario.
+  campi è in `club_books()`. Note private, date di lettura, posizione ("Dove si trova") e nome di
+  chi ha il libro restano del proprietario. In demo li toglie a mano `listClubBooks()` in
+  `js/db.js`: un campo privato nuovo va escluso anche lì.
   Una tabella o un campo nuovo arriva sempre con la sua regola.
 - In `js/config.js` va solo la chiave **publishable** (o anon) di Supabase, pensata per stare nel
   codice pubblico. **Mai la chiave `secret` / `service_role`.**
 - Le iscrizioni restano chiuse: gli utenti li crea l'amministratore dalla dashboard di Supabase.
 - I passi nelle dashboard di Supabase e GitHub li fa l'amministratore: un agente li spiega, non li esegue.
 - Le modifiche al database sono file numerati in `supabase/` (01, 02, 03…), eseguiti a mano
-  nell'SQL Editor di Supabase, nell'ordine.
+  nell'SQL Editor di Supabase, nell'ordine. Il codice che usa una colonna nuova si pubblica solo
+  dopo che l'amministratore ha eseguito il file: ogni push aggiorna subito il sito, e senza la
+  colonna il salvataggio dei libri fallisce.
 - L'unico codice che gira sui server di Supabase è la Edge Function `sbn`
   (`supabase/functions/sbn/index.ts`). *Verify JWT* deve restare attivo, ma **non basta**: con le
   nuove chiavi lascia passare anche la chiave publishable, quindi il controllo vero è quello nel
@@ -49,6 +52,9 @@ codici a barre, il PC per inserire e consultare.
   Google Books e Open Library e sceglie in quest'ordine. Le fonti successive completano solo i campi
   mancanti, e solo se il titolo coincide: il catalogo di Google collega alcuni ISBN a libri sbagliati.
   In demo SBN non c'è. La ricerca per titolo usa Google (un tentativo) e Open Library.
+- Il genere delle fonti non si copia: le voci sono argomenti in inglese o spagnolo ("futurology").
+  `GENRE_RULES` in `js/lookup.js` le traduce nell'elenco base `GENRES` di `js/app.js` (nomi
+  uguali nei due file), altrimenti il genere resta vuoto.
 - Da ottobre 2026 Google Books ha un guasto: le ricerche `isbn:`/`intitle:` tornano vuote e spesso
   risponde 503. Aumentare i tentativi non serve. Senza chiave la quota è sempre esaurita.
 - OPAC SBN si legge solo dal server (il browser viene bloccato dal CORS). L'indirizzo

@@ -29,7 +29,8 @@ I dati stanno su [Supabase](https://supabase.com) (database gratuito) e il sito 
 2. Apri **SQL Editor → New query**, incolla tutto il contenuto di [`supabase/01-schema.sql`](supabase/01-schema.sql) e premi **Run**.
    Crea la tabella `books` e le regole di sicurezza, così ogni utente vede solo i propri libri.
    Ripeti, nell'ordine, con [`supabase/02-club.sql`](supabase/02-club.sql) (club del libro)
-   e [`supabase/03-prestiti.sql`](supabase/03-prestiti.sql) (lista "Voglio leggere", prestiti, novità, obiettivo).
+   [`supabase/03-prestiti.sql`](supabase/03-prestiti.sql) (lista "Voglio leggere", prestiti, novità, obiettivo)
+   e [`supabase/04-posizione.sql`](supabase/04-posizione.sql) (dove si trova ogni libro).
 3. Crea il tuo utente: **Authentication → Users → Add user → Create new user**,
    inserisci email e password e spunta **Auto Confirm User**.
 4. Chiudi le iscrizioni ad altri: **Authentication → Sign In / Providers**, disattiva
@@ -174,15 +175,16 @@ Ogni tanto premi **Esporta** per scaricare il CSV della tua libreria (ognuno pu�
 | `supabase/01-schema.sql` | Tabella dei libri e regole di sicurezza |
 | `supabase/02-club.sql` | Profili, condivisione dei libri e funzione che elenca i libri del club |
 | `supabase/03-prestiti.sql` | Prestiti, "Consigliato da", novità del club, obiettivo di lettura |
+| `supabase/04-posizione.sql` | "Dove si trova" (casa, stanza, scaffale), visibile solo al proprietario |
 | `supabase/functions/sbn/index.ts` | Funzione Supabase che cerca un ISBN nel catalogo OPAC SBN |
 | `sw.js` | Service worker: permette di aprire l'app senza connessione |
 | `manifest.webmanifest`, `icons/` | Nome e icona quando l'app è aggiunta alla schermata Home |
 
 ### Aggiungere un campo
 
-Esempio: un campo "Collocazione" (su quale scaffale si trova il libro).
+Esempio: un campo "Traduttore".
 
-1. In Supabase, **SQL Editor**: `alter table public.books add column shelf text;`
+1. In Supabase, **SQL Editor**: `alter table public.books add column translator text;`
 2. In `index.html`, dentro `#book-form`, aggiungi un campo con lo stesso nome della colonna:
-   `<label class="field"><span>Collocazione</span><input name="shelf"></label>`
-3. In `js/app.js`, nella funzione `readForm()`, aggiungi `shelf: text('shelf'),`.
+   `<label class="field"><span>Traduttore</span><input name="translator"></label>`
+3. In `js/app.js`, nella funzione `readForm()`, aggiungi `translator: text('translator'),`.

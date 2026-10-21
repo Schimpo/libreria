@@ -135,7 +135,7 @@ export async function listClubBooks() {
     const name = (await getProfile())?.display_name ?? 'Tu';
     const mine = readDemo()
       .filter((b) => b.shared)
-      .map(({ notes, lent_to, lent_at, borrower_id, started_at, finished_at, user_id, ...book }) => ({
+      .map(({ notes, lent_to, lent_at, borrower_id, started_at, finished_at, user_id, location, recommended_by, ...book }) => ({
         ...book,
         owner_id: 'demo',
         owner_name: name,
