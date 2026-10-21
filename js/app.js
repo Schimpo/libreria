@@ -58,6 +58,7 @@ const state = {
   query: '',
   sort: 'recent',
   genre: '',         // genere scelto nel menu: '' = tutti, NONE = senza genere
+  layout: readSetting('libreria-vista', 'covers'), // 'covers' oppure 'list' (vista "Elenco")
   editingId: null,   // id del libro aperto nella scheda, null se nuovo
   editingBook: null, // dati con cui è stata aperta la scheda
   view: 'library',   // 'library', 'club' oppure 'loans'
@@ -66,7 +67,8 @@ const state = {
   loansError: null,
   goal: null,
   readThisYear: 0,
-  club: { books: [], error: null, filter: 'all', member: '', query: '', lastSeen: null, seenNow: null, openKey: null, genre: '' },
+  club: { books: [], error: null, filter: 'all', member: '', query: '', lastSeen: null, seenNow: null, openKey: null, genre: '',
+    layout: readSetting('libreria-vista-club', 'covers') },
 };
 
 let scanController;
@@ -203,6 +205,7 @@ function bindEvents() {
     state.genre = e.target.value;
     render();
   });
+  bindLayoutToggle($('#library-layout'), state, 'libreria-vista', render);
   $('#sort').addEventListener('change', (e) => {
     state.sort = e.target.value;
     render();
@@ -228,6 +231,7 @@ function bindEvents() {
     state.club.genre = e.target.value;
     renderClub();
   });
+  bindLayoutToggle($('#club-layout'), state.club, 'libreria-vista-club', renderClub);
   $('#club-member').addEventListener('change', (e) => {
     state.club.member = e.target.value;
     renderClub();
@@ -335,7 +339,12 @@ function render() {
   state.genre = fillValueMenu($('#genre-filter'), state.books.map((b) => b.genre),
     'tutti i generi', 'senza genere', state.genre);
   const books = visibleBooks();
-  $('#book-list').replaceChildren(...books.map(bookItem));
+  const compact = state.layout === 'list';
+  const list = $('#book-list');
+  list.classList.toggle('compact', compact);
+  list.style.setProperty('--cols', LIBRARY_COLUMNS.length);
+  list.replaceChildren(...(!compact ? books.map(bookItem)
+    : books.length ? [listHead(LIBRARY_COLUMNS.map(([label]) => label)), ...books.map(bookRow)] : []));
 
   const total = state.books.length;
   if (state.loading) {
@@ -459,6 +468,73 @@ function fillSuggestions(datalist, values) {
     .map((text) => el('option', { value: text })));
 }
 
+// ---------- Vista "Elenco" ----------
+
+// Colonne della riga di un tuo libro, dopo il titolo.
+const LIBRARY_COLUMNS = [
+  ['Autore', (b) => b.authors],
+  ['Genere', (b) => b.genre],
+];
+
+function bookRow(book) {
+  return listRow({ 'data-id': book.id }, book.title, LIBRARY_COLUMNS.map(([, value]) => value(book)),
+    isWish(book)
+      ? el('span', { class: 'badge badge-wish' }, 'Voglio leggerlo')
+      : el('span', { class: `badge badge-${book.status}` }, STATUS_LABELS[book.status]));
+}
+
+// Riga dell'elenco: le colonne vuote restano, così sul PC sono allineate.
+function listRow(attrs, title, columns, ...end) {
+  return el('li', {},
+    el('button', { class: 'book-row', type: 'button', ...attrs },
+      el('span', { class: 'row-title' }, title),
+      el('span', { class: 'row-cols' }, ...columns.map((value) => el('span', {}, value ?? ''))),
+      el('span', { class: 'row-end' }, ...end),
+    ),
+  );
+}
+
+// Intestazione delle colonne, visibile solo sul PC.
+function listHead(labels, end = 'Stato') {
+  return el('li', { class: 'book-row book-row-head', 'aria-hidden': 'true' },
+    el('span', { class: 'row-title' }, 'Titolo'),
+    el('span', { class: 'row-cols' }, ...labels.map((label) => el('span', {}, label))),
+    el('span', { class: 'row-end' }, end),
+  );
+}
+
+// Pulsanti Copertine / Elenco: la scelta resta salvata in questo browser.
+function bindLayoutToggle(group, target, key, redraw) {
+  const sync = () => {
+    for (const b of group.children) b.setAttribute('aria-pressed', b.dataset.layout === target.layout);
+  };
+  sync();
+  group.addEventListener('click', (e) => {
+    const button = e.target.closest('[data-layout]');
+    if (!button) return;
+    target.layout = button.dataset.layout;
+    writeSetting(key, target.layout);
+    sync();
+    redraw();
+  });
+}
+
+function readSetting(key, fallback) {
+  try {
+    return localStorage.getItem(key) ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function writeSetting(key, value) {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    // archivio non disponibile: la scelta vale fino alla chiusura della pagina
+  }
+}
+
 function findBook(id) {
   return state.books.find((b) => b.id === id);
 }
@@ -574,7 +650,12 @@ function renderClub() {
     && (!state.club.member || g.entries.some((e) => e.owner_id === state.club.member))
     && (!query || matches(g, query) || g.entries.some((e) => simplify(e.owner_name).includes(query))));
 
-  $('#club-list').replaceChildren(...visible.map(clubItem));
+  const compact = state.club.layout === 'list';
+  const list = $('#club-list');
+  list.classList.toggle('compact', compact);
+  list.style.setProperty('--cols', 3);
+  list.replaceChildren(...(!compact ? visible.map(clubItem)
+    : visible.length ? [listHead(['Autore', 'Genere', 'Voto'], ''), ...visible.map(clubRow)] : []));
   $('#club-count').textContent = error ? '' : visible.length === groups.length
     ? plural(groups.length, 'libro', 'libri')
     : `${visible.length} di ${plural(groups.length, 'libro', 'libri')}`;
@@ -666,6 +747,18 @@ function clubItem(group) {
     ),
     el('ul', { class: 'club-entries' }, ...group.entries.map(clubEntry)),
   );
+}
+
+// Riga della vista "Elenco" del club: toccandola si apre la finestra del libro, con i commenti.
+function clubRow(group) {
+  const ratings = group.entries.map((e) => e.rating).filter(Boolean);
+  const average = ratings.length
+    ? `★ ${decimalFormat.format(ratings.reduce((a, b) => a + b, 0) / ratings.length)}` : null;
+  return listRow({ 'data-open': group.key, 'aria-haspopup': 'dialog' }, group.title,
+    [group.authors, firstValue(group, 'genre'), average],
+    group.entries.some(isNewEntry) && el('span', { class: 'badge badge-new' }, 'Novità'),
+    group.entries.some((e) => e.lent_to_me) && el('span', { class: 'badge badge-available' }, "Ce l'hai tu"),
+    CLUB_FILTERS.available(group, state.user?.id) && el('span', { class: 'badge badge-available' }, 'Disponibile'));
 }
 
 // Finestra di un libro del club: copertina, genere e dati dell'edizione, poi i membri che

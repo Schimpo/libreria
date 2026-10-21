@@ -413,6 +413,64 @@ input:focus, select:focus, textarea:focus {
 .toolbar-menus { justify-content: flex-start; flex-wrap: wrap; gap: 8px 16px; }
 .toolbar-menus select { max-width: 60vw; }
 
+/* Copertine / Elenco */
+.layout-toggle {
+  display: inline-flex;
+  margin-left: auto;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.layout-toggle button {
+  min-height: 34px;
+  padding: 0 12px;
+  border: 0;
+  background: var(--surface);
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+.layout-toggle button[aria-pressed="true"] { background: var(--accent); color: var(--accent-text); font-weight: 600; }
+
+/* Vista "Elenco": una riga per libro, senza copertine. Sul telefono il titolo sta sopra e le
+   altre colonne sotto, separate da "·"; sul PC (vedi in fondo) diventano colonne vere. */
+.book-list.compact,
+.club-list.compact {
+  grid-template-columns: 1fr;
+  gap: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  overflow: hidden;
+}
+.book-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 2px 12px;
+  align-items: center;
+  width: 100%;
+  padding: 10px 12px;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  background: none;
+  text-align: left;
+  cursor: pointer;
+}
+.compact > li:last-child .book-row { border-bottom: 0; }
+button.book-row:hover { background: var(--surface-2); }
+.row-title { font-weight: 600; line-height: 1.25; overflow-wrap: anywhere; }
+.row-cols { grid-column: 1; min-width: 0; color: var(--text-2); font-size: 0.85rem; }
+.row-cols > span:empty { display: none; }
+.row-cols > span:not(:empty) ~ span:not(:empty)::before { content: " · "; }
+.row-end {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 4px;
+}
+.book-row-head { display: none; }
+
 .book-list {
   display: grid;
   gap: 10px;
@@ -980,6 +1038,18 @@ dialog.scan video {
   .chips { margin: 0; padding: 2px 0; flex-wrap: wrap; }
   .fab-group { left: auto; right: 24px; bottom: 24px; }
   .fab { flex: none; }
+}
+
+@media (min-width: 760px) {
+  .book-row {
+    grid-template-columns: minmax(0, 2fr) repeat(var(--cols), minmax(0, 1fr)) minmax(120px, auto);
+  }
+  .row-cols { display: contents; }
+  .row-cols > span,
+  .row-cols > span:empty { display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .row-cols > span::before { content: none !important; }
+  .row-end { grid-column: auto; grid-row: auto; justify-content: flex-start; }
+  .book-row-head { display: grid; cursor: default; color: var(--muted); font-size: 0.8rem; font-weight: 600; }
 }
 
 @media (prefers-reduced-motion: reduce) {
