@@ -4,10 +4,12 @@ Web app personale per catalogare i libri che possiedi e quelli che hai letto.
 Funziona su telefono (con scansione del codice a barre) e su PC.
 
 - **Aggiunta rapida**: scansiona il codice a barre, scrivi l'ISBN o cerca per titolo;
-  titolo, autore, editore e copertina si compilano da soli (Google Books + Open Library).
+  titolo, autore, editore, genere e copertina si compilano da soli (OPAC SBN, Google Books, Open Library).
 - **Posseduto e letto sono separati**: un libro può essere tuo ma da leggere, o letto ma preso in prestito.
 - Stato di lettura, date, voto, note, a chi l'hai prestato.
-- Ricerca, filtri, ordinamento, statistiche ed esportazione in CSV.
+- **Dove si trova**: casa, stanza o scaffale di ogni libro che possiedi, visibile solo a te.
+- Ricerca, filtri (anche per genere e per posizione), ordinamento, statistiche ed esportazione in CSV.
+- **Vista "Elenco"**: una riga per libro, senza copertine, per vederne tanti insieme.
 - **Lista "Voglio leggere"**: i libri che ti incuriosiscono e non hai ancora, con chi te li ha consigliati.
 - **Club del libro**: ognuno sceglie quali libri condividere con i colleghi, con voto e commento;
   nella schermata *Club* si vede chi ha cosa, cosa è piaciuto e cosa ci si può far prestare.
@@ -102,6 +104,13 @@ Per ogni ISBN l'app chiede i dati a tre fonti insieme e sceglie in quest'ordine:
 Le fonti successive completano solo i campi mancanti, e solo se il titolo coincide.
 La ricerca per titolo usa Google Books e Open Library. In modalità demo SBN non viene usato.
 
+Il **genere** non si copia così com'è: le fonti danno argomenti in inglese o spagnolo
+("futurology", "Novela de misterio"). L'app cerca fra tutte le voci un genere dell'elenco base
+(Narrativa, Giallo/Thriller, Fantasy, Fantascienza, Classici, Saggistica, Storia, Biografia,
+Ragazzi, Fumetti, Poesia) e, se non ne riconosce nessuno, lo lascia vuoto. Può sbagliare: si
+corregge nella scheda, dove il campo suggerisce l'elenco base e i generi già usati.
+Le regole di traduzione sono `GENRE_RULES` in `js/lookup.js`.
+
 ### Pubblicare la funzione `sbn` (una volta, e dopo ogni modifica al file)
 
 1. Nella dashboard di Supabase apri **Edge Functions** → **Deploy a new function** → **Via Editor**.
@@ -121,8 +130,10 @@ Se la funzione non è pubblicata o non risponde, la ricerca continua con Google 
 Tutti gli utenti dell'app fanno parte dello stesso club.
 La libreria di ciascuno resta privata: nella scheda di un libro si attiva **Condividi con il club**
 e si può aggiungere un **Commento per il club**.
-Gli altri membri vedono solo titolo, stato di lettura, voto, commento e se il libro è disponibile per il prestito.
-Le note private, le date di lettura e il nome di chi ha il libro in prestito restano visibili solo al proprietario.
+Gli altri membri vedono solo i dati del libro (titolo, autori, genere, editore, anno, pagine, ISBN e copertina),
+lo stato di lettura, il voto, il commento e se il libro è disponibile per il prestito.
+Le note private, le date di lettura, la posizione e il nome di chi ha il libro in prestito restano visibili solo al proprietario.
+Toccando un libro del club si apre una finestra con i suoi dati e i commenti di tutti.
 
 ### Aggiungere un collega
 
