@@ -130,10 +130,19 @@ function showOffline(copy) {
   switchView('library');
 }
 
+// Aggiorna l'elenco dei tuoi libri e la copia per l'uso senza connessione: chi riapre l'app
+// senza rete vede anche le ultime aggiunte, modifiche e cancellazioni. Ogni libro caricato,
+// aggiunto, modificato o cancellato passa da qui; solo quando si mostra la copia stessa (senza
+// rete) o si svuota l'elenco cambiando utente no. In demo la copia non si salva, per non
+// mescolarla ai libri veri.
+function setBooks(books) {
+  state.books = books;
+  if (!db.isDemo) db.saveOfflineCopy(state.user, books);
+}
+
 async function loadBooks() {
   try {
-    state.books = await db.listBooks();
-    if (!db.isDemo) db.saveOfflineCopy(state.user, state.books);
+    setBooks(await db.listBooks());
   } catch (error) {
     const copy = db.readOfflineCopy();
     if (copy?.userId === state.user.id) {
@@ -892,7 +901,7 @@ async function addToWishlist(key, button) {
       status: 'to_read',
       recommended_by: names.length ? joinNames(names) : null,
     });
-    state.books = [created, ...state.books];
+    setBooks([created, ...state.books]);
     render();
     renderClub();
     toast('Aggiunto alla lista “Voglio leggere”.');
@@ -1029,7 +1038,7 @@ async function markReturned(bookId, button) {
   button.disabled = true;
   try {
     const updated = await db.updateBook(bookId, { lent_to: null });
-    state.books = state.books.map((b) => (b.id === updated.id ? updated : b));
+    setBooks(state.books.map((b) => (b.id === updated.id ? updated : b)));
     render();
     toast('Segnato come restituito.');
     await loadLoans(); // un prestito fatto tramite il club si chiude da solo
@@ -1263,7 +1272,7 @@ async function handleReturnedInForm(event) {
   button.disabled = true;
   try {
     const updated = await db.updateBook(state.editingId, { lent_to: null });
-    state.books = state.books.map((b) => (b.id === updated.id ? updated : b));
+    setBooks(state.books.map((b) => (b.id === updated.id ? updated : b)));
     state.editingBook = updated;
     $('#book-form').elements.lent_to.value = '';
     updateFormVisibility();
@@ -1345,9 +1354,9 @@ async function handleSave(event) {
     button.disabled = true;
     if (state.editingId) {
       const updated = await db.updateBook(state.editingId, data);
-      state.books = state.books.map((b) => (b.id === updated.id ? updated : b));
+      setBooks(state.books.map((b) => (b.id === updated.id ? updated : b)));
     } else {
-      state.books = [await db.createBook(data), ...state.books];
+      setBooks([await db.createBook(data), ...state.books]);
     }
     $('#book-dialog').close();
     render();
@@ -1368,7 +1377,7 @@ async function handleDelete() {
   if (!book || !confirm(`Eliminare “${book.title}” dalla libreria?`)) return;
   try {
     await db.deleteBook(book.id);
-    state.books = state.books.filter((b) => b.id !== book.id);
+    setBooks(state.books.filter((b) => b.id !== book.id));
     $('#book-dialog').close();
     render();
     if (state.view === 'club') loadClub();

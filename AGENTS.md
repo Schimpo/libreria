@@ -46,6 +46,9 @@ codici a barre, il PC per inserire e consultare.
 - `sw.js` elenca in `APP_FILES` i file dell'app da tenere per l'uso offline: un file nuovo va
   aggiunto lì, o senza connessione non si apre.
 - Dopo un aggiornamento del sito il telefono può mostrare la versione vecchia finché non si ricarica.
+- La copia dei libri per l'uso senza connessione si aggiorna solo in `setBooks()` (`js/app.js`):
+  ogni libro caricato, aggiunto, modificato o cancellato deve passare da lì, non da
+  `state.books = …`, o senza rete compaiono libri vecchi o già cancellati. In demo non si salva.
 - Nel piano gratuito Supabase mette in pausa il progetto dopo 7 giorni senza uso (si riattiva con
   *Restore project*) e **non fa backup**: l'unica copia è l'Esporta in CSV dall'app.
 - **Ricerca per ISBN** (`js/lookup.js`): chiede insieme a OPAC SBN (tramite la funzione `sbn`),
