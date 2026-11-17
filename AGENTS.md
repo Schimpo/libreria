@@ -49,8 +49,11 @@ codici a barre, il PC per inserire e consultare.
 - La copia dei libri per l'uso senza connessione si aggiorna solo in `setBooks()` (`js/app.js`):
   ogni libro caricato, aggiunto, modificato o cancellato deve passare da lì, non da
   `state.books = …`, o senza rete compaiono libri vecchi o già cancellati. In demo non si salva.
-- Nel piano gratuito Supabase mette in pausa il progetto dopo 7 giorni senza uso (si riattiva con
-  *Restore project*) e **non fa backup**: l'unica copia è l'Esporta in CSV dall'app.
+- Nel piano gratuito Supabase mette in pausa il progetto dopo 7 giorni con poca attività (si
+  riattiva con *Restore project* entro 90 giorni) e **non fa backup**: l'unica copia è l'Esporta in
+  CSV dall'app. `.github/workflows/supabase-sveglio.yml` fa ogni giorno una richiesta anonima
+  (risposta: elenco vuoto, per le regole RLS) con indirizzo e chiave letti da `js/config.js`, quindi
+  se cambiano lì vale anche per lei. GitHub spegne le attività programmate dopo 60 giorni senza commit.
 - **Ricerca per ISBN** (`js/lookup.js`): chiede insieme a OPAC SBN (tramite la funzione `sbn`),
   Google Books e Open Library e sceglie in quest'ordine. Le fonti successive completano solo i campi
   mancanti, e solo se il titolo coincide: il catalogo di Google collega alcuni ISBN a libri sbagliati.

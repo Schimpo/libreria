@@ -1,0 +1,42 @@
+# Tiene attivo il database su Supabase.
+# Nel piano gratuito Supabase mette in pausa il progetto dopo 7 giorni con poca attività.
+# Ogni giorno questa attività fa una richiesta al database con la chiave publishable presa da
+# js/config.js (è già pubblica nel codice): senza accesso le regole RLS non mostrano nessun
+# libro, quindi la risposta è un elenco vuoto. Se il progetto è in pausa o non risponde,
+# l'attività fallisce e GitHub manda un'email a chi mantiene il repository.
+# Attenzione: GitHub spegne le attività programmate dopo 60 giorni senza commit nel
+# repository; prima avvisa per email, e si riaccendono dalla scheda Actions.
+
+name: Tieni attivo Supabase
+
+on:
+  schedule:
+    - cron: '17 6 * * *'   # ogni giorno alle 6:17 UTC
+  workflow_dispatch:        # si può avviare anche a mano dalla scheda Actions
+
+permissions:
+  contents: read
+
+jobs:
+  richiesta:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Richiesta al database
+        run: |
+          url=$(sed -n "s/^export const SUPABASE_URL = '\(.*\)';/\1/p" js/config.js)
+          key=$(sed -n "s/^export const SUPABASE_KEY = '\(.*\)';/\1/p" js/config.js)
+          if [ -z "$url" ] || [ -z "$key" ]; then
+            echo "Indirizzo o chiave di Supabase non trovati in js/config.js"
+            exit 1
+          fi
+          code=$(curl -s -o risposta.txt -w '%{http_code}' --max-time 30 \
+            -H "apikey: $key" "$url/rest/v1/books?select=id&limit=1")
+          echo "Risposta di Supabase: HTTP $code"
+          if [ "$code" != "200" ]; then
+            cat risposta.txt 2>/dev/null
+            echo "Supabase non ha risposto come previsto: il progetto potrebbe essere in pausa."
+            exit 1
+          fi
