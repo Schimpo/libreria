@@ -50,8 +50,9 @@ codici a barre, il PC per inserire e consultare.
   ogni libro caricato, aggiunto, modificato o cancellato deve passare da lì, non da
   `state.books = …`, o senza rete compaiono libri vecchi o già cancellati. In demo non si salva.
 - Nel piano gratuito Supabase mette in pausa il progetto dopo 7 giorni con poca attività (si
-  riattiva con *Restore project* entro 90 giorni) e **non fa backup**: l'unica copia è l'Esporta in
-  CSV dall'app. `.github/workflows/supabase-sveglio.yml` fa ogni giorno una richiesta anonima
+  riattiva con *Restore project*: l'email di Supabase dice entro 90 giorni, la documentazione un
+  anno; conta il più breve) e **non fa backup**: l'unica copia è l'Esporta in CSV dall'app.
+  `.github/workflows/supabase-sveglio.yml` fa 3 richieste anonime al giorno, senza garanzia
   (risposta: elenco vuoto, per le regole RLS) con indirizzo e chiave letti da `js/config.js`, quindi
   se cambiano lì vale anche per lei. GitHub spegne le attività programmate dopo 60 giorni senza commit.
 - **Ricerca per ISBN** (`js/lookup.js`): chiede insieme a OPAC SBN (tramite la funzione `sbn`),

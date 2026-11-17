@@ -51,10 +51,15 @@ I dati stanno su [Supabase](https://supabase.com) (database gratuito) e il sito 
    **Non usare mai la chiave `secret` / `service_role`.**
 
 > **Nota:** nel piano gratuito, se per 7 giorni l'attività è poca Supabase mette il progetto in pausa.
-> I dati non si perdono: basta riattivarlo dalla dashboard (**Restore project**) entro 90 giorni.
-> Per evitarlo, l'attività GitHub [`supabase-sveglio.yml`](.github/workflows/supabase-sveglio.yml)
-> fa ogni giorno una richiesta al database (senza leggere nessun libro). Se fallisce, GitHub manda
-> un'email. GitHub spegne le attività programmate dopo 60 giorni senza commit: prima avvisa per email,
+> I dati non si perdono: basta riattivarlo dalla dashboard (**Restore project**). L'email di Supabase
+> dà 90 giorni di tempo, la [documentazione](https://supabase.com/docs/guides/platform/free-project-pausing)
+> un anno: conta il termine più breve.
+> Per ridurre il rischio, l'attività GitHub [`supabase-sveglio.yml`](.github/workflows/supabase-sveglio.yml)
+> fa 3 richieste al giorno al database (senza leggere nessun libro). Non è una garanzia: se arrivano
+> ancora gli avvisi di Supabase, bisogna fare di più.
+> Se una richiesta fallisce, GitHub manda un'email a chi ha creato l'attività, ma solo se in
+> GitHub → **Settings → Notifications → Actions** le email sono attive.
+> GitHub spegne le attività programmate dopo 60 giorni senza commit: prima avvisa per email,
 > e si riaccendono dalla scheda **Actions** del repository.
 
 ### 2. Pubblicazione su GitHub Pages

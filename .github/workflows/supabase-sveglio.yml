@@ -1,17 +1,20 @@
-# Tiene attivo il database su Supabase.
-# Nel piano gratuito Supabase mette in pausa il progetto dopo 7 giorni con poca attività.
-# Ogni giorno questa attività fa una richiesta al database con la chiave publishable presa da
+# Riduce il rischio che Supabase metta in pausa il database.
+# Nel piano gratuito Supabase mette in pausa il progetto dopo 7 giorni con poca attività;
+# la sua documentazione dice che di solito bastano "qualche richiesta al giorno", senza una
+# soglia precisa. Questa attività fa 3 richieste al giorno con la chiave publishable presa da
 # js/config.js (è già pubblica nel codice): senza accesso le regole RLS non mostrano nessun
-# libro, quindi la risposta è un elenco vuoto. Se il progetto è in pausa o non risponde,
-# l'attività fallisce e GitHub manda un'email a chi mantiene il repository.
-# Attenzione: GitHub spegne le attività programmate dopo 60 giorni senza commit nel
-# repository; prima avvisa per email, e si riaccendono dalla scheda Actions.
+# libro, quindi la risposta è un elenco vuoto. Non è una garanzia: se arrivano comunque gli
+# avvisi di Supabase, bisogna fare di più.
+# Se il progetto è in pausa o non risponde, l'attività fallisce. GitHub manda l'email a chi ha
+# creato l'attività (o ne ha cambiato l'orario), solo se ha attivato le notifiche di Actions.
+# GitHub spegne le attività programmate dopo 60 giorni senza commit nel repository; prima
+# avvisa per email, e si riaccendono dalla scheda Actions.
 
 name: Tieni attivo Supabase
 
 on:
   schedule:
-    - cron: '17 6 * * *'   # ogni giorno alle 6:17 UTC
+    - cron: '17 */8 * * *'   # ogni giorno alle 0:17, 8:17 e 16:17 UTC
   workflow_dispatch:        # si può avviare anche a mano dalla scheda Actions
 
 permissions:
